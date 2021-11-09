@@ -20,7 +20,7 @@ class ExampleGuidedAttention(nn.Module):
         # [N, H * W, H * W]
         att_map = torch.softmax(query @ query.permute(0, 2, 1), dim=-1)
         src_att = self.apply_attention_map(att_map, src_feature)
-        ref_att = self.apply_attention_map(att_map, src_feature)
+        ref_att = self.apply_attention_map(att_map, ref_feature)
 
         src_mask = src_mask.unsqueeze(-1)  # [N, H, W, 1]
 
