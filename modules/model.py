@@ -27,7 +27,7 @@ class ReferenceFill(nn.Module):
 
     def __init__(self, mask_params, encoder_params, decoder_params):
         super().__init__()
-        self.mask_detector = MaskDetector(mask_params)
+        self.mask_detector = MaskDetector(**mask_params)
         self.src_encoder = ImageEncoder(encoder_params)
         self.ref_encoder = ImageEncoder(encoder_params)
         self.decoder = ImageDecoder(decoder_params)
@@ -35,7 +35,7 @@ class ReferenceFill(nn.Module):
         self.attention = ExampleGuidedAttention(encoder_params.out_channels)
 
     def forward(self, src_image, ref_image):
-        src_mask = self.mask_detector(src_image)
+        src_mask = self.mask_detector(src_image, mode='eval')
         src_features = self.src_encoder(src_image, src_mask)
         ref_features = self.ref_encoder(ref_image)
 
