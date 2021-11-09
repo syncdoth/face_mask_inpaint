@@ -23,6 +23,15 @@ class ImageDecoder(nn.Module):
         pass
 
 
+class ImageDiscriminator(nn.Module):
+
+    def __init__(self, params):
+        super().__init__()
+
+    def forward(self, real_image, fake_image):
+        pass
+
+
 class ReferenceFill(nn.Module):
 
     def __init__(self, mask_params, encoder_params, decoder_params):
