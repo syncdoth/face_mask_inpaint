@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+import random
 
 import torch
 import torch.nn as nn
@@ -100,8 +101,10 @@ class BasicDataset(Dataset):
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
         self.scale = scale
         self.mask_suffix = mask_suffix
-
+        print ("Images_dir length: ",len(listdir(images_dir)))
+        print ("Masks_dir length: ", len(listdir(masks_dir)))
         self.ids = [splitext(file)[0].split('_')[0] for file in listdir(images_dir) if not file.startswith('.')]
+        self.ids = random.sample(self.ids,90000)
         if not self.ids:
             raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
         logging.info(f'Creating dataset with {len(self.ids)} examples')
@@ -139,27 +142,24 @@ class BasicDataset(Dataset):
 
     def __getitem__(self, idx):
         name = self.ids[idx]
-        mask_file = list(self.masks_dir.glob(name + self.mask_suffix + '.*'))
-        img_file = list(self.images_dir.glob(name + '_surgical' + '.*'))
-
-        assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
-        assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
-        mask = self.load(mask_file[0])
-        img = self.load(img_file[0])
-
+        mask_file = str(self.masks_dir) + '/' + name + self.mask_suffix + '.npy'
+        img_file = str(self.images_dir) + '/' + name + '_surgical' + '.jpg'
+        # assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
+        # assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
+        mask = self.load(mask_file)
+        img = self.load(img_file)
         assert img.size == mask.size, \
             'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
         img = self.preprocess(img, self.scale, is_mask=False)
         mask = self.preprocess(mask, self.scale, is_mask=True)
-
         return {
             'image': torch.as_tensor(img.copy()).float().contiguous(),
             'mask': torch.as_tensor(mask.copy()).long().contiguous()
         }
 
-dir_img = Path('./CelebA/img_align_celeba_masked1')
-dir_mask = Path('./CelebA/binary_map')
+dir_img = Path('../CelebA/img_align_celeba_masked1')
+dir_mask = Path('../CelebA/binary_map')
 dir_checkpoint = Path('./checkpoints_mask_detector/')
 
 def train_net(net,
@@ -229,12 +229,11 @@ def train_net(net,
                     f'but loaded images have {images.shape[1]} channels. Please check that ' \
                     'the images are loaded correctly.'
 
-                images = images.to(device=device, dtype=torch.float32) #(1,3,109,89)
-                true_masks = (true_masks>0).to(device=device, dtype=torch.long) #(1, 109, 89)
+                images = images.to(device=device, dtype=torch.float32) #(B,3,218,178)
+                true_masks = (true_masks>0).to(device=device, dtype=torch.long) #(B,218,178)
 
                 with torch.cuda.amp.autocast(enabled=amp):
-                    masks_pred = net(images) #(2,109,89), after unsqueeze(0) --> (1,2,109,89)
-                    print(masks_pred.shape)
+                    masks_pred = net(images) #(B,2,218,178)
                     loss = criterion(masks_pred, true_masks) \
                     + dice_loss(F.softmax(masks_pred, dim=1).float(), 
                                        F.one_hot(true_masks, 2).permute(0, 3, 1, 2).float(),
