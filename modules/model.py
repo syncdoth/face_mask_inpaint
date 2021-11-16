@@ -14,30 +14,40 @@ def scale_img(img, size):
 class ReferenceFill(nn.Module):
 
     def __init__(self, mask_params, encoder_params, decoder_params):
+        """
+        mask_params:
+            n_channels,
+            bilinear=True,
+            threshold=0.5
+
+        encoder_params: (default)
+            ngf=32,
+            img_f=128,
+            layers=5,
+            norm='none',
+            activation='LeakyReLU',
+            init_type='orthogonal'
+
+        decoder_params: (default)
+            ngf=32,
+            img_f=256,
+            layers=5,
+            norm='instance',
+            activation='LeakyReLU',
+            init_type='orthogonal'
+        """
         super().__init__()
         self.mask_detector = MaskDetector(**mask_params)
-        self.src_encoder = network.define_e(ngf=32,
-                                            img_f=128,
-                                            layers=5,
-                                            norm='none',
-                                            activation='LeakyReLU',
-                                            init_type='orthogonal')
-        self.ref_encoder = network.define_e(ngf=32,
-                                            img_f=128,
-                                            layers=5,
-                                            norm='none',
-                                            activation='LeakyReLU',
-                                            init_type='orthogonal')
-        self.decoder = network.define_g(ngf=32,
-                                        img_f=256,
-                                        layers=5,
-                                        norm='instance',
-                                        activation='LeakyReLU',
-                                        init_type='orthogonal')
+        self.src_encoder = network.define_e(**encoder_params)
+        self.ref_encoder = network.define_e(**encoder_params)
+        self.decoder = network.define_g(**decoder_params)
 
-        self.attention = ExampleGuidedAttention(128)
+        self.attention = ExampleGuidedAttention(encoder_params['img_f'])
 
     def forward(self, src_image, ref_image):
+        """
+        both have shape [N, 3, 218, 178]  (CelebA dataset images)
+        """
         src_mask = self.mask_detector(src_image, mode='eval')
         src_features = self.src_encoder(src_image)
         ref_features = self.ref_encoder(ref_image)
