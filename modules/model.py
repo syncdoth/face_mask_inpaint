@@ -1,9 +1,8 @@
 import torch.nn.functional as F
 from torch import nn
 
-from example_guided_att import ExampleGuidedAttention
-from mask_detector import MaskDetector
-from pluralistic_model import network
+from modules.example_guided_att import ExampleGuidedAttention
+from modules.pluralistic_model import network
 
 
 def scale_img(img, size):
@@ -13,7 +12,7 @@ def scale_img(img, size):
 
 class ReferenceFill(nn.Module):
 
-    def __init__(self, mask_params, encoder_params, decoder_params):
+    def __init__(self, mask_detector, encoder_params, decoder_params):
         """
         mask_params:
             n_channels,
@@ -37,18 +36,19 @@ class ReferenceFill(nn.Module):
             init_type='orthogonal'
         """
         super().__init__()
-        self.mask_detector = MaskDetector(**mask_params)
+        self.mask_detector = mask_detector
         self.src_encoder = network.define_e(**encoder_params)
         self.ref_encoder = network.define_e(**encoder_params)
         self.decoder = network.define_g(**decoder_params)
 
         self.attention = ExampleGuidedAttention(encoder_params['img_f'])
 
-    def forward(self, src_image, ref_image):
+    def forward(self, src_image, ref_image, src_mask=None):
         """
         both have shape [N, 3, 218, 178]  (CelebA dataset images)
         """
-        src_mask = self.mask_detector(src_image, mode='eval')
+        if src_mask is None:
+            src_mask = self.mask_detector(src_image, mode='eval')
         src_features = self.src_encoder(src_image)
         ref_features = self.ref_encoder(ref_image)
 

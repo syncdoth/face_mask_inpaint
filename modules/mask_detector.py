@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from unet.unet_model import UNet
+from modules.unet.unet_model import UNet
 
 
 class MaskDetector(nn.Module):
