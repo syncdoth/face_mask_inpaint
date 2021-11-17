@@ -33,7 +33,7 @@ def evaluate(net, dataloader, device):
         image, mask_true = batch['image'], batch['mask']
         # move images and labels to correct device and type
         image = image.to(device=device, dtype=torch.float32)
-        mask_true = mask_true.to(device=device, dtype=torch.long)
+        mask_true = (mask_true>0).to(device=device, dtype=torch.long)
         mask_true = F.one_hot(mask_true, net.n_classes).permute(0, 3, 1, 2).float()
 
         with torch.no_grad():
@@ -236,7 +236,7 @@ def train_net(net,
                     masks_pred = net(images) #(B,2,218,178)
                     loss = criterion(masks_pred, true_masks) \
                     + dice_loss(F.softmax(masks_pred, dim=1).float(), 
-                                       F.one_hot(true_masks, 2).permute(0, 3, 1, 2).float(),
+                                       F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
                                        multiclass=True)
 
                 optimizer.zero_grad(set_to_none=True)

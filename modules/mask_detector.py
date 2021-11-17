@@ -12,6 +12,7 @@ class MaskDetector(nn.Module):
         self.threshold = threshold
         self.n_channels = n_channels
         self.bilinear = bilinear
+        self.n_classes = 2
 
     def forward(self, image, mode='train'):
         """
