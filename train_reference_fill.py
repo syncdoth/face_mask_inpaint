@@ -18,7 +18,7 @@ from modules.pluralistic_model import base_function, network
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=5, help='Number of epochs')
-    parser.add_argument('--batch_size', dest='batch_size', type=int, default=1)
+    parser.add_argument('--batch_size', dest='batch_size', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
 
     # path args
