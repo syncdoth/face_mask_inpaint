@@ -202,7 +202,6 @@ def train_net(generator,
                 optimizer_D.step()
 
                 optimizer_G.zero_grad()
-                base_function._freeze(discriminator)
                 loss_G.backward()
                 base_function._unfreeze(discriminator)
                 optimizer_G.step()

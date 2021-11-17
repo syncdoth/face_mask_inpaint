@@ -158,9 +158,9 @@ class ReferenceDataset(BasicDataset):
     def __getitem__(self, idx):
         name = self.ids[idx]
         mask_file = self.masks_dir / Path(name + '.npy')
-        src_file = self.images_dir / Path(name + '_surgical' + '.jpg')
+        src_file = self.source_dir / Path(name + '_surgical' + '.jpg')
         gt_file = self.reference_dir / Path(name + '.jpg')
-        ref_file = self.sample_reference_image(name)
+        ref_file = self.reference_dir / Path(self.sample_reference_image(name) + '.jpg')
 
         mask = self.load(mask_file)
         src_img = self.load(src_file)

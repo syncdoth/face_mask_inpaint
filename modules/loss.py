@@ -4,6 +4,7 @@ Loss Network (VGG16) and stuff
 import torch
 from torch import nn
 
+from modules.pluralistic_model import base_function
 from modules.pluralistic_model.external_function import GANLoss
 
 
@@ -50,6 +51,7 @@ class TotalLoss(nn.Module):
 
     def generator_loss(self, netD, real, fake):
         """Calculate training loss for the generator"""
+        base_function._freeze(netD)  # need to freeze here: unfreeze after backward
         D_fake = netD(fake)
         loss_ad_g = self.gan_loss(D_fake, True, False) * self.lambda_g
         loss_l1_g = self.l1_loss(fake, real)

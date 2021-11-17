@@ -55,5 +55,5 @@ class ReferenceFill(nn.Module):
         scaled_mask = scale_img(src_mask.unsqueeze(1), src_features.shape[-2:])
         enc_features = self.attention(scaled_mask, src_features, ref_features)
         dec_image = self.decoder(enc_features)
-        scale_img(dec_image, src_image.shape[-2:])
+        dec_image = scale_img(dec_image, src_image.shape[-2:])
         return dec_image
