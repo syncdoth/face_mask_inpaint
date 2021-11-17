@@ -185,7 +185,6 @@ def train_net(generator,
 
                 gen_images = generator(src_images, ref_images, src_mask=true_masks)
 
-                # TODO: loss calculation, optimization!
                 loss_D, loss_G = criterion(discriminator, src_images, gt_images,
                                            ref_images, gen_images, true_masks)
 

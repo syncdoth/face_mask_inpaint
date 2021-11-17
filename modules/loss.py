@@ -8,7 +8,7 @@ from modules.pluralistic_model.external_function import GANLoss
 
 
 class TotalLoss(nn.Module):
-
+    # TODO: implement this class
     def __init__(self, lambda_g=1.0):
         super().__init__()
         self.gan_loss = GANLoss('lsgan')
