@@ -2,11 +2,47 @@
 Loss Network (VGG16) and stuff
 """
 import torch
+import torchvision
 from torch import nn
 
 from modules.pluralistic_model import base_function
 from modules.pluralistic_model.external_function import GANLoss
+from modules.pluralistic_model.external_function import StyleLoss
+import torch.nn.functional as F
 
+class VGGLoss(torch.nn.Module):
+    def __init__(self):
+        super(VGGLoss, self).__init__()
+        blocks = []
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
+        for bl in blocks:
+            for p in bl.parameters():
+                p.requires_grad = False
+        self.blocks = torch.nn.ModuleList(blocks)
+        self.transform = torch.nn.functional.interpolate
+        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+
+    def forward(self, input, target, perceptual=True):
+        # Perceptual Loss : input = gen_img, target = gt_img
+        # Style Loss : input = gen_img * src_mask, target = src_img,
+        input = (input-self.mean) / self.std
+        target = (target-self.mean) / self.std
+        loss = 0.0
+        x = input
+        y = target
+        for i, block in enumerate(self.blocks):
+            x = block(x)
+            y = block(y)
+            dim = x.shape[1] * x.shape[2] * x.shape[3] # C * H * W
+            if perceptual: #perceptual
+                loss += torch.nn.functional.l1_loss(x, y) / dim
+            else: #style
+                loss += StyleLoss (x, y) / (x.shape[1] * x.shape[1] * dim)
+        return loss
 
 class GANOptimizer(nn.Module):
     # TODO: implement this class
@@ -14,20 +50,18 @@ class GANOptimizer(nn.Module):
         super().__init__()
         self.gan_loss = GANLoss('lsgan')
         self.l1_loss = nn.L1Loss()
+        self.vgg_loss = VGGLoss()
         self.lambda_g = lambda_g
         self.debug = debug  # if debug, return 0 for not implemented loss terms
         self.optimizer_D = optimizer_D
         self.optimizer_G = optimizer_G
 
     def perceptual_loss(self, gt_img, gen_img):
-        if self.debug:
-            return 0
-        raise NotImplementedError
+        return self.vgg_loss(gen_img, gt_img, perceptual=True)
 
     def style_loss(self, gen_img, src_img, src_mask):
-        if self.debug:
-            return 0
-        raise NotImplementedError
+        src_mask = src_mask.unsqueeze(1).repeat(1,3,1,1)
+        return self.vgg_loss(gen_img*src_mask, src_img, perceptual=False)
 
     def contextual_loss(self, gen_img, ref_img, src_mask):
         if self.debug:
