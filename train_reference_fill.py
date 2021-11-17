@@ -207,7 +207,7 @@ def train_net(generator,
     optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
     scheduler_D = optim.lr_scheduler.ReduceLROnPlateau(optimizer_D, 'max', patience=2)
 
-    gan_optimizer = GANOptimizer(optimizer_D, optimizer_G, debug=debug)
+    gan_optimizer = GANOptimizer(optimizer_D, optimizer_G, debug=debug).to(device)
     global_step = 0
 
     # 5. Begin training
