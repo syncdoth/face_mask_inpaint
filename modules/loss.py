@@ -8,6 +8,7 @@ from torch import nn
 from modules.pluralistic_model import base_function
 from modules.pluralistic_model.external_function import GANLoss
 from modules.pluralistic_model.external_function import StyleLoss
+from modules.pluralistic_model.external_function import contextual_loss
 import torch.nn.functional as F
 
 class VGGLoss(torch.nn.Module):
@@ -26,7 +27,7 @@ class VGGLoss(torch.nn.Module):
         self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
-    def forward(self, input, target, perceptual=True):
+    def forward(self, input, target, lossType = 'perceptual'):
         # Perceptual Loss : input = gen_img, target = gt_img
         # Style Loss : input = gen_img * src_mask, target = src_img,
         input = (input-self.mean) / self.std
@@ -38,10 +39,12 @@ class VGGLoss(torch.nn.Module):
             x = block(x)
             y = block(y)
             dim = x.shape[1] * x.shape[2] * x.shape[3] # C * H * W
-            if perceptual: #perceptual
+            if lossType=='perceptual': #perceptual
                 loss += torch.nn.functional.l1_loss(x, y) / dim
-            else: #style
+            elif lossType == 'style': #style
                 loss += StyleLoss (x, y) / (x.shape[1] * x.shape[1] * dim)
+            elif (lossType == 'contextual' and i > 1):
+                loss += contextual_loss (x, y) / dim
         return loss
 
 class GANOptimizer(nn.Module):
@@ -57,16 +60,15 @@ class GANOptimizer(nn.Module):
         self.optimizer_G = optimizer_G
 
     def perceptual_loss(self, gt_img, gen_img):
-        return self.vgg_loss(gen_img, gt_img, perceptual=True)
+        return self.vgg_loss(gen_img, gt_img, lossType='perceptual')
 
     def style_loss(self, gen_img, src_img, src_mask):
-        src_mask = src_mask.unsqueeze(1).repeat(1,3,1,1)
-        return self.vgg_loss(gen_img*src_mask, src_img, perceptual=False)
+        src_mask = (1-src_mask).unsqueeze(1).repeat(1,3,1,1) # Yes inverse 
+        return self.vgg_loss(gen_img*src_mask, src_img, lossType='style')
 
     def contextual_loss(self, gen_img, ref_img, src_mask):
-        if self.debug:
-            return 0
-        raise NotImplementedError
+        src_mask = src_mask.unsqueeze(1).repeat(1,3,1,1) # No inverse
+        return self.vgg_loss(gen_img*src_mask, ref_img*src_mask, lossType='contextual')
 
     def discriminator_loss(self, netD, real, fake):
         """Calculate GAN loss for the discriminator"""
