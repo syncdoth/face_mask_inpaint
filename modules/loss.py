@@ -65,7 +65,7 @@ class TotalLoss(nn.Module):
 
         secondary_loss = perc_loss + style_loss + cx_loss
 
-        return D_loss + secondary_loss, G_loss + secondary_loss
+        return D_loss, G_loss + secondary_loss
 
 
 ######################## Unet Losses #########################################
