@@ -27,6 +27,7 @@ def get_args():
                         help='debug with turning off not implemented parts')
 
     # path args
+    parser.add_argument('--run_name', type=str, default='', help='exp name')
     parser.add_argument('--checkpoint_path', type=str, default='saved_model')
     parser.add_argument('--mask_detector_path', type=str, default='')
     parser.add_argument('--data_root', type=str, default='/data/mohaa/project1/CelebA')
@@ -122,6 +123,7 @@ def main():
               learning_rate=args.learning_rate,
               save_checkpoint=True,
               dir_checkpoint=args.checkpoint_path,
+              run_name=args.run_name,
               do_eval=bool(args.do_eval),
               debug=bool(args.debug))
 
@@ -175,6 +177,7 @@ def train_net(generator,
               learning_rate=0.001,
               save_checkpoint=True,
               dir_checkpoint=None,
+              run_name='',
               do_eval=True,
               debug=False):
 
@@ -183,6 +186,7 @@ def train_net(generator,
 
     experiment = wandb.init(project='Reference Inpainting',
                             resume='allow',
+                            name=run_name,
                             anonymous='must')
     experiment.config.update(
         dict(epochs=epochs,
@@ -199,6 +203,11 @@ def train_net(generator,
         Checkpoints:     {save_checkpoint}
         Device:          {device}
     ''')
+
+    if isinstance(dir_checkpoint, str):
+        dir_checkpoint = Path(dir_checkpoint)
+    dir_checkpoint = dir_checkpoint / Path(run_name)
+    dir_checkpoint.mkdir(parents=True, exist_ok=True)
 
     # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
     optimizer_G = optim.Adam(generator.parameters(), lr=learning_rate)
@@ -295,9 +304,6 @@ def train_net(generator,
                     experiment.log(exp_log_params)
 
         if save_checkpoint:
-            if isinstance(dir_checkpoint, str):
-                dir_checkpoint = Path(dir_checkpoint)
-            dir_checkpoint.mkdir(parents=True, exist_ok=True)
             torch.save(generator.state_dict(),
                        dir_checkpoint / Path(f'G_checkpoint_epoch{epoch + 1}.pth'))
             torch.save(discriminator.state_dict(),
