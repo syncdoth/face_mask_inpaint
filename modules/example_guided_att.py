@@ -27,7 +27,7 @@ class ExampleGuidedAttention(nn.Module):
         src_att = self.apply_attention_map(att_map, src_feature)
         ref_att = self.apply_attention_map(att_map, ref_feature)
 
-        ex_guide_flow = src_mask * ref_att + (1 - src_mask) * ref_feature
+        ex_guide_flow = (1 - src_mask) * ref_att + src_mask * ref_feature
 
         out = torch.cat([ex_guide_flow, src_att], dim=1)  # [N, C*2, H, W]
         return out
