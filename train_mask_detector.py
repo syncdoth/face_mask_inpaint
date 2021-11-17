@@ -2,26 +2,24 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-import random
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import wandb
-from torch import optim, Tensor
+from torch import optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
-import logging
-from os import listdir
-from os.path import splitext
-
-import numpy as np
-import torch
-from PIL import Image
-from torch.utils.data import Dataset
-from Pytorch_UNet.unet.unet_model import UNet
+from dataloader import BasicDataset
+from modules.loss import dice_coeff, dice_loss, multiclass_dice_coeff
 from modules.mask_detector import MaskDetector
+
+
+DIR_IMG = Path('../CelebA/img_align_celeba_masked1')
+DIR_MASK = Path('../CelebA/binary_map')
+DIR_CHECKPOINT = Path('./checkpoints_mask_detector/')
+
 
 def evaluate(net, dataloader, device):
     net.eval()
@@ -59,108 +57,6 @@ def evaluate(net, dataloader, device):
         return dice_score
     return dice_score / num_val_batches
 
-def dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = False, epsilon=1e-6):
-    # Average of Dice coefficient for all batches, or for a single mask
-    assert input.size() == target.size()
-    if input.dim() == 2 and reduce_batch_first:
-        raise ValueError(f'Dice: asked to reduce batch but got tensor without batch dimension (shape {input.shape})')
-
-    if input.dim() == 2 or reduce_batch_first:
-        inter = torch.dot(input.reshape(-1), target.reshape(-1))
-        sets_sum = torch.sum(input) + torch.sum(target)
-        if sets_sum.item() == 0:
-            sets_sum = 2 * inter
-
-        return (2 * inter + epsilon) / (sets_sum + epsilon)
-    else:
-        # compute and average metric for each batch element
-        dice = 0
-        for i in range(input.shape[0]):
-            dice += dice_coeff(input[i, ...], target[i, ...])
-        return dice / input.shape[0]
-
-def multiclass_dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = False, epsilon=1e-6):
-    # Average of Dice coefficient for all classes
-    assert input.size() == target.size()
-    dice = 0
-    for channel in range(input.shape[1]):
-        dice += dice_coeff(input[:, channel, ...], target[:, channel, ...], reduce_batch_first, epsilon)
-
-    return dice / input.shape[1]
-
-def dice_loss(input: Tensor, target: Tensor, multiclass: bool = False):
-    # Dice loss (objective to minimize) between 0 and 1
-    assert input.size() == target.size()
-    fn = multiclass_dice_coeff if multiclass else dice_coeff
-    return 1 - fn(input, target, reduce_batch_first=True)
-
-class BasicDataset(Dataset):
-    def __init__(self, images_dir: str, masks_dir: str, scale: float = 1.0, mask_suffix: str = ''):
-        self.images_dir = Path(images_dir)
-        self.masks_dir = Path(masks_dir)
-        assert 0 < scale <= 1, 'Scale must be between 0 and 1'
-        self.scale = scale
-        self.mask_suffix = mask_suffix
-        print ("Images_dir length: ",len(listdir(images_dir)))
-        print ("Masks_dir length: ", len(listdir(masks_dir)))
-        self.ids = [splitext(file)[0].split('_')[0] for file in listdir(images_dir) if not file.startswith('.')]
-        self.ids = random.sample(self.ids,90000)
-        if not self.ids:
-            raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
-        logging.info(f'Creating dataset with {len(self.ids)} examples')
-
-    def __len__(self):
-        return len(self.ids)
-
-    @classmethod
-    def preprocess(cls, pil_img, scale, is_mask):
-        w, h = pil_img.size
-        newW, newH = int(scale * w), int(scale * h)
-        assert newW > 0 and newH > 0, 'Scale is too small, resized images would have no pixel'
-        pil_img = pil_img.resize((newW, newH), resample=Image.NEAREST if is_mask else Image.BICUBIC)
-        img_ndarray = np.asarray(pil_img)
-
-        if img_ndarray.ndim == 2 and not is_mask:
-            img_ndarray = img_ndarray[np.newaxis, ...]
-        elif not is_mask:
-            img_ndarray = img_ndarray.transpose((2, 0, 1))
-
-        if not is_mask:
-            img_ndarray = img_ndarray / 255
-
-        return img_ndarray
-
-    @classmethod
-    def load(cls, filename):
-        ext = splitext(filename)[1]
-        if ext in ['.npz', '.npy']:
-            return Image.fromarray(np.load(filename))
-        elif ext in ['.pt', '.pth']:
-            return Image.fromarray(torch.load(filename).numpy())
-        else:
-            return Image.open(filename)
-
-    def __getitem__(self, idx):
-        name = self.ids[idx]
-        mask_file = str(self.masks_dir) + '/' + name + self.mask_suffix + '.npy'
-        img_file = str(self.images_dir) + '/' + name + '_surgical' + '.jpg'
-        # assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
-        # assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
-        mask = self.load(mask_file)
-        img = self.load(img_file)
-        assert img.size == mask.size, \
-            'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
-
-        img = self.preprocess(img, self.scale, is_mask=False)
-        mask = self.preprocess(mask, self.scale, is_mask=True)
-        return {
-            'image': torch.as_tensor(img.copy()).float().contiguous(),
-            'mask': torch.as_tensor(mask.copy()).long().contiguous()
-        }
-
-dir_img = Path('../CelebA/img_align_celeba_masked1')
-dir_mask = Path('../CelebA/binary_map')
-dir_checkpoint = Path('./checkpoints_mask_detector/')
 
 def train_net(net,
               device,
@@ -173,9 +69,9 @@ def train_net(net,
               amp: bool = False):
     # 1. Create dataset
     # try:
-    #     dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
+    #     dataset = CarvanaDataset(DIR_IMG, DIR_MASK, img_scale)
     # except (AssertionError, RuntimeError):
-    dataset = BasicDataset(dir_img,dir_mask, img_scale)
+    dataset = BasicDataset(DIR_IMG,DIR_MASK, img_scale)
 
     # 2. Split into train / validation partitions
     # n_val = int(len(dataset) * val_percent)
@@ -282,8 +178,8 @@ def train_net(net,
                         })
 
         if save_checkpoint:
-            Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
-            torch.save(net.state_dict(), str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch + 1)))
+            Path(DIR_CHECKPOINT).mkdir(parents=True, exist_ok=True)
+            torch.save(net.state_dict(), str(DIR_CHECKPOINT / 'checkpoint_epoch{}.pth'.format(epoch + 1)))
             logging.info(f'Checkpoint {epoch + 1} saved!')
 
 
