@@ -9,19 +9,26 @@ from modules.pluralistic_model.external_function import GANLoss
 
 class TotalLoss(nn.Module):
     # TODO: implement this class
-    def __init__(self, lambda_g=1.0):
+    def __init__(self, lambda_g=1.0, debug=False):
         super().__init__()
         self.gan_loss = GANLoss('lsgan')
         self.l1_loss = nn.L1Loss()
         self.lambda_g = lambda_g
+        self.debug = debug  # if debug, return 0 for not implemented loss terms
 
     def perceptual_loss(self, gt_img, gen_img):
+        if self.debug:
+            return 0
         raise NotImplementedError
 
     def style_loss(self, gen_img, src_img, src_mask):
+        if self.debug:
+            return 0
         raise NotImplementedError
 
     def contextual_loss(self, gen_img, ref_img, src_mask):
+        if self.debug:
+            return 0
         raise NotImplementedError
 
     def adv_loss(self, netD, real, fake):

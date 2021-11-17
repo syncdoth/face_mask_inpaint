@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 import wandb
-from torch.nn import optim
+from torch import optim
 from tqdm import tqdm
 
 from dataloader import get_reference_dataloader
@@ -21,11 +21,15 @@ def get_args():
     parser.add_argument('--batch_size', dest='batch_size', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
     parser.add_argument('--do_eval', type=int, default=1)
+    parser.add_argument('--debug',
+                        type=int,
+                        default=0,
+                        help='debug with turning off not implemented parts')
 
     # path args
     parser.add_argument('--checkpoint_path', type=str, default='saved_model')
     parser.add_argument('--mask_detector_path', type=str, default='')
-    parser.add_argument('--data_root', type=str, default='/data/mohaa.project1/CelebA')
+    parser.add_argument('--data_root', type=str, default='/data/mohaa/project1/CelebA')
     parser.add_argument('--src_img_path', type=str, default='img_align_celeba_masked1')
     parser.add_argument('--ref_img_path', type=str, default='img_align_celeba')
     parser.add_argument('--mask_path', type=str, default='binary_map')
@@ -117,7 +121,8 @@ def main():
               learning_rate=args.learning_rate,
               save_checkpoint=True,
               dir_checkpoint=args.checkpoint_path,
-              do_eval=bool(args.do_eval))
+              do_eval=bool(args.do_eval),
+              debug=bool(args.debug))
 
 
 def evaluate(generator, discriminator, val_loader, device):
@@ -134,7 +139,8 @@ def train_net(generator,
               learning_rate=0.001,
               save_checkpoint=True,
               dir_checkpoint=None,
-              do_eval=True):
+              do_eval=True,
+              debug=False):
 
     n_train = len(train_loader.dataset)
     n_val = len(val_loader.dataset)
@@ -165,7 +171,7 @@ def train_net(generator,
     optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
     scheduler_D = optim.lr_scheduler.ReduceLROnPlateau(optimizer_D, 'max', patience=2)
 
-    criterion = TotalLoss()
+    criterion = TotalLoss(debug=debug)
     global_step = 0
 
     # 5. Begin training
