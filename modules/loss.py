@@ -46,9 +46,10 @@ class GANOptimizer(nn.Module):
         D_loss = (D_real_loss + D_fake_loss) * 0.5
         return D_loss
 
-    def generator_loss(self, netD, real, fake):
+    def generator_loss(self, netD, real, fake, freeze=True):
         """Calculate training loss for the generator"""
-        base_function._freeze(netD)  # need to freeze here: unfreeze after backward
+        if freeze:
+            base_function._freeze(netD)  # need to freeze here: unfreeze after backward
         D_fake = netD(fake)
         loss_ad_g = self.gan_loss(D_fake, True, False) * self.lambda_g
         loss_l1_g = self.l1_loss(fake, real)
@@ -74,6 +75,16 @@ class GANOptimizer(nn.Module):
         base_function._unfreeze(discriminator)  # frozen in self.generator_loss
         self.optimizer_G.step()
 
+        return D_loss, G_loss
+
+    def calc_loss(self, discriminator, src_img, gt_img, ref_img, gen_img, src_mask):
+        D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
+        G_loss = self.generator_loss(discriminator, gt_img, gen_img, freeze=False)
+        perc_loss = self.perceptual_loss(gt_img, gen_img)
+        style_loss = self.style_loss(gen_img, src_img, src_mask)
+        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask)
+
+        G_loss = G_loss + perc_loss + style_loss + cx_loss
         return D_loss, G_loss
 
 

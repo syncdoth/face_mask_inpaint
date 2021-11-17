@@ -126,8 +126,43 @@ def main():
               debug=bool(args.debug))
 
 
-def evaluate(generator, discriminator, val_loader, device):
-    raise NotImplementedError
+@torch.no_grad()
+def evaluate(generator, discriminator, val_loader, calc_loss, device):
+    generator.eval()
+    discriminator.eval()
+    num_val_batches = len(val_loader)
+
+    running_loss_D, running_loss_G = 0, 0
+    # iterate over the validation set
+    for batch in tqdm(val_loader,
+                      total=num_val_batches,
+                      desc='Validation round',
+                      unit='batch',
+                      leave=False):
+        src_images = batch['src_img']
+        true_masks = batch['mask']
+        ref_images = batch['ref_img']
+        gt_images = batch['gt_img']
+
+        src_images = src_images.to(device)  #[N, 3, H, W]
+        ref_images = ref_images.to(device)  #[N, 3, H, W]
+        gt_images = gt_images.to(device)  #[N, 3, H, W]
+        true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
+
+        gen_images = generator(src_images, ref_images, src_mask=true_masks)
+
+        loss_D, loss_G = calc_loss(discriminator, src_images, gt_images, ref_images,
+                                   gen_images, true_masks)
+        running_loss_D += loss_D.item()
+        running_loss_G += loss_G.item()
+
+    generator.train()
+    discriminator.train()
+
+    running_loss_D /= num_val_batches
+    running_loss_G /= num_val_batches
+
+    return running_loss_D, running_loss_G
 
 
 def train_net(generator,
@@ -214,7 +249,7 @@ def train_net(generator,
                 })
 
                 # Evaluation round
-                division_step = (n_train // (100 * batch_size))
+                division_step = (n_train // (10 * batch_size))
                 if division_step == 0:
                     continue
                 if global_step % division_step == 0:
@@ -247,20 +282,26 @@ def train_net(generator,
                     }
                     # TODO: evaluation
                     if do_eval:
-                        val_score = evaluate(generator, discriminator, val_loader, device)
-                        scheduler_D.step(val_score)
-                        scheduler_G.step(val_score)
-                        logging.info('Validation score: {}'.format(val_score))
-                        exp_log_params['validation score'] = val_score
+                        val_loss_D, val_loss_G = evaluate(generator, discriminator,
+                                                          val_loader,
+                                                          gan_optimizer.calc_loss, device)
+                        scheduler_D.step(val_loss_D)
+                        scheduler_G.step(val_loss_G)
+                        logging.info(f'G validation loss: {val_loss_G}')
+                        logging.info(f'D validation loss: {val_loss_D}')
+                        exp_log_params['G validation loss'] = val_loss_G
+                        exp_log_params['D validation loss'] = val_loss_D
 
                     experiment.log(exp_log_params)
 
         if save_checkpoint:
-            Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
+            if isinstance(dir_checkpoint, str):
+                dir_checkpoint = Path(dir_checkpoint)
+            dir_checkpoint.mkdir(parents=True, exist_ok=True)
             torch.save(generator.state_dict(),
-                       str(dir_checkpoint / 'G_checkpoint_epoch{}.pth'.format(epoch + 1)))
+                       dir_checkpoint / Path(f'G_checkpoint_epoch{epoch + 1}.pth'))
             torch.save(discriminator.state_dict(),
-                       str(dir_checkpoint / 'D_checkpoint_epoch{}.pth'.format(epoch + 1)))
+                       dir_checkpoint / Path(f'D_checkpoint_epoch{epoch + 1}.pth'))
             logging.info(f'Checkpoint {epoch + 1} saved!')
 
 
