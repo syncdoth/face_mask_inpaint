@@ -8,14 +8,16 @@ from modules.pluralistic_model import base_function
 from modules.pluralistic_model.external_function import GANLoss
 
 
-class TotalLoss(nn.Module):
+class GANOptimizer(nn.Module):
     # TODO: implement this class
-    def __init__(self, lambda_g=1.0, debug=False):
+    def __init__(self, optimizer_D, optimizer_G, lambda_g=1.0, debug=False):
         super().__init__()
         self.gan_loss = GANLoss('lsgan')
         self.l1_loss = nn.L1Loss()
         self.lambda_g = lambda_g
         self.debug = debug  # if debug, return 0 for not implemented loss terms
+        self.optimizer_D = optimizer_D
+        self.optimizer_G = optimizer_G
 
     def perceptual_loss(self, gt_img, gen_img):
         if self.debug:
@@ -31,11 +33,6 @@ class TotalLoss(nn.Module):
         if self.debug:
             return 0
         raise NotImplementedError
-
-    def adv_loss(self, netD, real, fake):
-        D_loss = self.discriminator_loss(netD, real, fake)
-        G_loss = self.generator_loss(netD, real, fake)
-        return D_loss, G_loss
 
     def discriminator_loss(self, netD, real, fake):
         """Calculate GAN loss for the discriminator"""
@@ -60,14 +57,24 @@ class TotalLoss(nn.Module):
         return G_loss
 
     def __call__(self, discriminator, src_img, gt_img, ref_img, gen_img, src_mask):
-        D_loss, G_loss = self.adv_loss(discriminator, gt_img, gen_img)
+        D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
+        self.optimizer_D.zero_grad()
+        D_loss.backward()
+        self.optimizer_D.step()
+
+        G_loss = self.generator_loss(discriminator, gt_img, gen_img)
         perc_loss = self.perceptual_loss(gt_img, gen_img)
         style_loss = self.style_loss(gen_img, src_img, src_mask)
         cx_loss = self.contextual_loss(gen_img, ref_img, src_mask)
 
-        secondary_loss = perc_loss + style_loss + cx_loss
+        G_loss = G_loss + perc_loss + style_loss + cx_loss
 
-        return D_loss, G_loss + secondary_loss
+        self.optimizer_G.zero_grad()
+        G_loss.backward()
+        base_function._unfreeze(discriminator)  # frozen in self.generator_loss
+        self.optimizer_G.step()
+
+        return D_loss, G_loss
 
 
 ######################## Unet Losses #########################################

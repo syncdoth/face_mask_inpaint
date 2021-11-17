@@ -9,7 +9,7 @@ from torch import optim
 from tqdm import tqdm
 
 from dataloader import get_reference_dataloader
-from modules.loss import TotalLoss
+from modules.loss import GANOptimizer
 from modules.mask_detector import MaskDetector
 from modules.model import ReferenceFill
 from modules.pluralistic_model import base_function, network
@@ -95,6 +95,7 @@ def main():
     mask_detector = MaskDetector(n_channels=3, bilinear=True)
     if args.mask_detector_path:
         mask_detector.load_state_dict(torch.load(args.mask_detector_path))
+    base_function._freeze(mask_detector)  # freeze
 
     # process encoder, decoder, discriminator args
     encoder_params, decoder_params, disc_params = process_params(args)
@@ -171,7 +172,7 @@ def train_net(generator,
     optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
     scheduler_D = optim.lr_scheduler.ReduceLROnPlateau(optimizer_D, 'max', patience=2)
 
-    criterion = TotalLoss(debug=debug)
+    gan_optimizer = GANOptimizer(optimizer_D, optimizer_G, debug=debug)
     global_step = 0
 
     # 5. Begin training
@@ -194,17 +195,8 @@ def train_net(generator,
 
                 gen_images = generator(src_images, ref_images, src_mask=true_masks)
 
-                loss_D, loss_G = criterion(discriminator, src_images, gt_images,
-                                           ref_images, gen_images, true_masks)
-
-                optimizer_D.zero_grad()
-                loss_D.backward()
-                optimizer_D.step()
-
-                optimizer_G.zero_grad()
-                loss_G.backward()
-                base_function._unfreeze(discriminator)
-                optimizer_G.step()
+                loss_D, loss_G = gan_optimizer(discriminator, src_images, gt_images,
+                                               ref_images, gen_images, true_masks)
 
                 pbar.update(src_images.shape[0])
                 global_step += 1
@@ -222,17 +214,21 @@ def train_net(generator,
                 })
 
                 # Evaluation round
-                division_step = (n_train // (10 * batch_size))
+                division_step = (n_train // (100 * batch_size))
                 if division_step == 0:
                     continue
                 if global_step % division_step == 0:
                     histograms = {}
                     for tag, value in generator.named_parameters():
+                        if not value.requires_grad:
+                            continue
                         tag = tag.replace('/', '.')
                         histograms['G_weights/' + tag] = wandb.Histogram(value.data.cpu())
                         histograms['G_gradients/' + tag] = wandb.Histogram(
                             value.grad.data.cpu())
                     for tag, value in discriminator.named_parameters():
+                        if value.grad is None:  # auto_attn grad is None
+                            continue
                         tag = tag.replace('/', '.')
                         histograms['D_weights/' + tag] = wandb.Histogram(value.data.cpu())
                         histograms['D_gradients/' + tag] = wandb.Histogram(
@@ -243,6 +239,7 @@ def train_net(generator,
                         '[D] learning rate': optimizer_D.param_groups[0]['lr'],
                         'src_images': wandb.Image(src_images[0].cpu()),
                         'ref_images': wandb.Image(ref_images[0].cpu()),
+                        'gen_images': wandb.Image(gen_images[0].cpu()),
                         'gt_images': wandb.Image(gt_images[0].cpu()),
                         'step': global_step,
                         'epoch': epoch,
@@ -256,7 +253,7 @@ def train_net(generator,
                         logging.info('Validation score: {}'.format(val_score))
                         exp_log_params['validation score'] = val_score
 
-                    experiment.log({exp_log_params})
+                    experiment.log(exp_log_params)
 
         if save_checkpoint:
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
