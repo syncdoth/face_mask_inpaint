@@ -117,14 +117,19 @@ class ReferenceDataset(BasicDataset):
         self.masks_dir = Path(masks_dir)
         self.reference_dir = Path(reference_dir)
         self.identity_map, self.img2identity = self.read_identity_file(identity_file)
+        self.filter_id = set()  # identities with only one image should be ignored
+        for v in self.identity_map.values():
+            if len(v) < 2:
+                self.filter_id.update(v)
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
         self.scale = scale
 
-        self.ids = [
-            splitext(file)[0].split('_')[0]
-            for file in listdir(source_dir)
-            if not file.startswith('.')
-        ]
+        self.ids = []
+        for f in listdir(source_dir):
+            f_id = splitext(f)[0].split('_')[0]
+            if not f.startswith('.') and f_id not in self.filter_id:
+                self.ids.append(f_id)
+
         if not self.ids:
             raise RuntimeError(
                 f'No input file found in {source_dir}, make sure you put your images there'
@@ -150,6 +155,7 @@ class ReferenceDataset(BasicDataset):
 
     def sample_reference_image(self, img_name):
         images = self.identity_map[self.img2identity[img_name]]
+        assert len(images) > 1
         reference_image = random.choice(images)
         while reference_image == img_name:
             reference_image = random.choice(images)

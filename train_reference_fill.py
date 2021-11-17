@@ -109,7 +109,7 @@ def main():
                                                         args.identity_file_path,
                                                         args.batch_size,
                                                         val_amount=0.1,
-                                                        num_workers=4)
+                                                        num_workers=os.cpu_count())
 
     train_net(generator,
               discriminator,
