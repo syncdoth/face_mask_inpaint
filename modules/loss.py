@@ -11,6 +11,7 @@ from modules.pluralistic_model.external_function import StyleLoss
 from modules.pluralistic_model.external_function import contextual_loss
 import torch.nn.functional as F
 
+#Implementation mainly from https://gist.github.com/alper111/8233cdb0414b4cb5853f2f730ab95a49
 class VGGLoss(torch.nn.Module):
     def __init__(self):
         super(VGGLoss, self).__init__()

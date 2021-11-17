@@ -229,7 +229,8 @@ class get_features(nn.Module):
         return output
 
 def contextual_loss(x, y, h=0.5):
-    """Computes contextual loss between x and y.
+    """ Implementation from https://gist.github.com/yunjey/3105146c736f9c1055463c33b4c989da
+    Computes contextual loss between x and y.
     
     Args:
       x: features of shape (N, C, H, W).
