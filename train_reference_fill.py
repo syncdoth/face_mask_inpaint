@@ -20,6 +20,7 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=5, help='Number of epochs')
     parser.add_argument('--batch_size', dest='batch_size', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
+    parser.add_argument('--do_eval', type=int, default=1)
 
     # path args
     parser.add_argument('--checkpoint_path', type=str, default='saved_model')
@@ -115,7 +116,8 @@ def main():
               batch_size=args.batch_size,
               learning_rate=args.learning_rate,
               save_checkpoint=True,
-              dir_checkpoint=args.checkpoint_path)
+              dir_checkpoint=args.checkpoint_path,
+              do_eval=bool(args.do_eval))
 
 
 def evaluate(generator, discriminator, val_loader, device):
@@ -131,7 +133,8 @@ def train_net(generator,
               batch_size=1,
               learning_rate=0.001,
               save_checkpoint=True,
-              dir_checkpoint=None):
+              dir_checkpoint=None,
+              do_eval=True):
 
     n_train = len(train_loader.dataset)
     n_val = len(val_loader.dataset)
@@ -230,23 +233,25 @@ def train_net(generator,
                         histograms['D_gradients/' + tag] = wandb.Histogram(
                             value.grad.data.cpu())
 
-                    # TODO: evaluation
-                    val_score = evaluate(generator, discriminator, val_loader, device)
-                    scheduler_D.step(val_score)
-                    scheduler_G.step(val_score)
-
-                    logging.info('Validation score: {}'.format(val_score))
-                    experiment.log({
+                    exp_log_params = {
                         '[G] learning rate': optimizer_G.param_groups[0]['lr'],
                         '[D] learning rate': optimizer_D.param_groups[0]['lr'],
-                        'validation score': val_score,
                         'src_images': wandb.Image(src_images[0].cpu()),
                         'ref_images': wandb.Image(ref_images[0].cpu()),
                         'gt_images': wandb.Image(gt_images[0].cpu()),
                         'step': global_step,
                         'epoch': epoch,
                         **histograms
-                    })
+                    }
+                    # TODO: evaluation
+                    if do_eval:
+                        val_score = evaluate(generator, discriminator, val_loader, device)
+                        scheduler_D.step(val_score)
+                        scheduler_G.step(val_score)
+                        logging.info('Validation score: {}'.format(val_score))
+                        exp_log_params['validation score'] = val_score
+
+                    experiment.log({exp_log_params})
 
         if save_checkpoint:
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
