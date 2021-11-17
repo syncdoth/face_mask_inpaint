@@ -9,10 +9,10 @@ from torch.nn import optim
 from tqdm import tqdm
 
 from dataloader import get_reference_dataloader
+from modules.loss import TotalLoss
 from modules.mask_detector import MaskDetector
 from modules.model import ReferenceFill
-from modules.pluralistic_model import network
-from modules.loss import calc_loss
+from modules.pluralistic_model import base_function, network
 
 
 def get_args():
@@ -23,7 +23,7 @@ def get_args():
 
     # path args
     parser.add_argument('--checkpoint_path', type=str, default='saved_model')
-    parser.add_argument('--mask_detector_path', type=str, required=True)
+    parser.add_argument('--mask_detector_path', type=str, default='')
     parser.add_argument('--data_root', type=str, default='/data/mohaa.project1/CelebA')
     parser.add_argument('--src_img_path', type=str, default='img_align_celeba_masked1')
     parser.add_argument('--ref_img_path', type=str, default='img_align_celeba')
@@ -88,7 +88,8 @@ def main():
 
     # load saved mask detector
     mask_detector = MaskDetector(n_channels=3, bilinear=True)
-    mask_detector.load_state_dict(torch.load(args.mask_detector_path))
+    if args.mask_detector_path:
+        mask_detector.load_state_dict(torch.load(args.mask_detector_path))
 
     # process encoder, decoder, discriminator args
     encoder_params, decoder_params, disc_params = process_params(args)
@@ -161,6 +162,7 @@ def train_net(generator,
     optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
     scheduler_D = optim.lr_scheduler.ReduceLROnPlateau(optimizer_D, 'max', patience=2)
 
+    criterion = TotalLoss()
     global_step = 0
 
     # 5. Begin training
@@ -181,17 +183,20 @@ def train_net(generator,
                 gt_images = gt_images.to(device)  #[N, 3, H, W]
                 true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
 
-                generated_images = generator(src_images, ref_images, src_mask=true_masks)
+                gen_images = generator(src_images, ref_images, src_mask=true_masks)
 
                 # TODO: loss calculation, optimization!
-                loss_D, loss_G = calc_loss(discriminator, gt_images, generated_images)
+                loss_D, loss_G = criterion(discriminator, src_images, gt_images,
+                                           ref_images, gen_images, true_masks)
 
                 optimizer_D.zero_grad()
                 loss_D.backward()
                 optimizer_D.step()
 
                 optimizer_G.zero_grad()
+                base_function._freeze(discriminator)
                 loss_G.backward()
+                base_function._unfreeze(discriminator)
                 optimizer_G.step()
 
                 pbar.update(src_images.shape[0])

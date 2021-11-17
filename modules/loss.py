@@ -2,42 +2,66 @@
 Loss Network (VGG16) and stuff
 """
 import torch
+from torch import nn
 
-from modules.pluralistic_model import base_function
 from modules.pluralistic_model.external_function import GANLoss
 
 
-def calc_loss():
-    raise NotImplementedError
+class TotalLoss(nn.Module):
+
+    def __init__(self, lambda_g=1.0):
+        super().__init__()
+        self.gan_loss = GANLoss('lsgan')
+        self.l1_loss = nn.L1Loss()
+        self.lambda_g = lambda_g
+
+    def perceptual_loss(self, gt_img, gen_img):
+        raise NotImplementedError
+
+    def style_loss(self, gen_img, src_img, src_mask):
+        raise NotImplementedError
+
+    def contextual_loss(self, gen_img, ref_img, src_mask):
+        raise NotImplementedError
+
+    def adv_loss(self, netD, real, fake):
+        D_loss = self.discriminator_loss(netD, real, fake)
+        G_loss = self.generator_loss(netD, real, fake)
+        return D_loss, G_loss
+
+    def discriminator_loss(self, netD, real, fake):
+        """Calculate GAN loss for the discriminator"""
+        # Real
+        D_real = netD(real)
+        D_real_loss = self.gan_loss(D_real, True, True)
+        # fake
+        D_fake = netD(fake.detach())
+        D_fake_loss = self.gan_loss(D_fake, False, True)
+
+        D_loss = (D_real_loss + D_fake_loss) * 0.5
+        return D_loss
+
+    def generator_loss(self, netD, real, fake):
+        """Calculate training loss for the generator"""
+        D_fake = netD(fake)
+        loss_ad_g = self.gan_loss(D_fake, True, False) * self.lambda_g
+        loss_l1_g = self.l1_loss(fake, real)
+        G_loss = loss_ad_g + loss_l1_g
+
+        return G_loss
+
+    def __call__(self, discriminator, src_img, gt_img, ref_img, gen_img, src_mask):
+        D_loss, G_loss = self.adv_loss(discriminator, gt_img, gen_img)
+        perc_loss = self.perceptual_loss(gt_img, gen_img)
+        style_loss = self.style_loss(gen_img, src_img, src_mask)
+        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask)
+
+        secondary_loss = perc_loss + style_loss + cx_loss
+
+        return D_loss + secondary_loss, G_loss + secondary_loss
 
 
-def discriminator_loss(netD, real, fake):
-    """Calculate GAN loss for the discriminator"""
-    gan_loss = GANLoss('lsgan')
-    # Real
-    D_real = netD(real)
-    D_real_loss = gan_loss(D_real, True, True)
-    # fake
-    D_fake = netD(fake.detach())
-    D_fake_loss = gan_loss(D_fake, False, True)
-    # loss for discriminator
-    D_loss = (D_real_loss + D_fake_loss) * 0.5
-    return D_loss
-
-
-def generator_loss(netD, real, fake, lambda_g):
-    gan_loss = GANLoss('lsgan')
-    l1_loss = torch.nn.L1Loss()
-    """Calculate training loss for the generator"""
-    base_function._freeze(netD)  # TODO: should unfreeze later
-    D_fake = netD(fake)
-    loss_ad_g = gan_loss(D_fake, True, False) * lambda_g
-    loss_l1_g = l1_loss(fake, real)
-    G_loss = loss_ad_g + loss_l1_g
-
-    return G_loss
-
-
+######################## Unet Losses #########################################
 def dice_coeff(input, target, reduce_batch_first=False, epsilon=1e-6):
     # Average of Dice coefficient for all batches, or for a single mask
     assert input.size() == target.size()
