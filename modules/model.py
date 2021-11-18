@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 from torch import nn
 
@@ -12,7 +13,7 @@ def scale_img(img, size):
 
 class ReferenceFill(nn.Module):
 
-    def __init__(self, mask_detector, encoder_params, decoder_params):
+    def __init__(self, mask_detector, encoder_params, decoder_params, use_att=True):
         """
         mask_params:
             n_channels,
@@ -41,7 +42,9 @@ class ReferenceFill(nn.Module):
         self.ref_encoder = network.define_e(**encoder_params)
         self.decoder = network.define_g(**decoder_params)
 
-        self.attention = ExampleGuidedAttention(encoder_params['img_f'])
+        self.use_att = use_att
+        if use_att:
+            self.attention = ExampleGuidedAttention(encoder_params['img_f'])
 
     def forward(self, src_image, ref_image, src_mask=None):
         """
@@ -52,8 +55,11 @@ class ReferenceFill(nn.Module):
         src_features = self.src_encoder(src_image)
         ref_features = self.ref_encoder(ref_image)
 
-        scaled_mask = scale_img(src_mask.unsqueeze(1), src_features.shape[-2:])
-        enc_features = self.attention(scaled_mask, src_features, ref_features)
+        if self.use_att:
+            scaled_mask = scale_img(src_mask.unsqueeze(1), src_features.shape[-2:])
+            enc_features = self.attention(scaled_mask, src_features, ref_features)
+        else:
+            enc_features = torch.cat([src_features, ref_features], dim=1)
         dec_image = self.decoder(enc_features)
         dec_image = scale_img(dec_image, src_image.shape[-2:])
         return dec_image

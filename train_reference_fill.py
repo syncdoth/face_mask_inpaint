@@ -56,6 +56,8 @@ def get_args():
     parser.add_argument('--disc_layers', type=int, default=5)
     parser.add_argument('--disc_model_type', type=str, default='ResDis')
     parser.add_argument('--disc_init_type', type=str, default='orthogonal')
+
+    parser.add_argument('--use_att', type=int, default=1, help='whether to use attention')
     args = parser.parse_args()
 
     # process data path args here
@@ -102,7 +104,10 @@ def main():
     encoder_params, decoder_params, disc_params = process_params(args)
 
     # define models
-    generator = ReferenceFill(mask_detector, encoder_params, decoder_params).to(device)
+    generator = ReferenceFill(mask_detector,
+                              encoder_params,
+                              decoder_params,
+                              use_att=args.use_att).to(device)
     discriminator = network.define_d(**disc_params).to(device)
 
     train_loader, val_loader = get_reference_dataloader(args.src_img_path,
