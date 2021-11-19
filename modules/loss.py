@@ -51,7 +51,7 @@ class VGGLoss(torch.nn.Module):
 
 
 class GANOptimizer(nn.Module):
-    # TODO: implement this class
+
     def __init__(self, optimizer_D, optimizer_G, lambda_g=0.01, debug=False):
         super().__init__()
         self.gan_loss = GANLoss('lsgan')

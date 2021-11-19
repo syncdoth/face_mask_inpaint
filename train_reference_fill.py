@@ -216,10 +216,16 @@ def train_net(generator,
 
     # 4. Set up the optimizer, the loss, the learning rate scheduler and the loss scaling for AMP
     optimizer_G = optim.Adam(generator.parameters(), lr=learning_rate)
-    scheduler_G = optim.lr_scheduler.ReduceLROnPlateau(optimizer_G, 'max', patience=2)
+    scheduler_G = optim.lr_scheduler.ReduceLROnPlateau(optimizer_G,
+                                                       'max',
+                                                       patience=2,
+                                                       factor=0.8)
 
     optimizer_D = optim.Adam(discriminator.parameters(), lr=learning_rate)
-    scheduler_D = optim.lr_scheduler.ReduceLROnPlateau(optimizer_D, 'max', patience=2)
+    scheduler_D = optim.lr_scheduler.ReduceLROnPlateau(optimizer_D,
+                                                       'max',
+                                                       patience=2,
+                                                       factor=0.8)
 
     gan_optimizer = GANOptimizer(optimizer_D, optimizer_G, debug=debug).to(device)
     global_step = 0
