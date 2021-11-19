@@ -51,16 +51,20 @@ class VGGLoss(torch.nn.Module):
 
 
 class GANOptimizer(nn.Module):
-    # TODO: implement this class
-    def __init__(self, optimizer_D, optimizer_G, lambda_g=1.0, debug=False):
+
+    def __init__(self, optimizer_D, optimizer_G, lambda_g=0.01, debug=False):
         super().__init__()
         self.gan_loss = GANLoss('lsgan')
         self.l1_loss = nn.L1Loss()
         self.vgg_loss = VGGLoss()
-        self.lambda_g = lambda_g
         self.debug = debug  # if debug, return 0 for not implemented loss terms
         self.optimizer_D = optimizer_D
         self.optimizer_G = optimizer_G
+
+        self.lambda_perc = 0.1
+        self.lambda_style = 250
+        self.lambda_cx = 1
+        self.lambda_g = lambda_g
 
     def perceptual_loss(self, gt_img, gen_img):
         return self.vgg_loss(gen_img, gt_img, lossType='perceptual')
@@ -99,22 +103,21 @@ class GANOptimizer(nn.Module):
         return G_loss
 
     def __call__(self, discriminator, src_img, gt_img, ref_img, gen_img, src_mask):
-        D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
-        self.optimizer_D.zero_grad()
-        D_loss.backward()
-        self.optimizer_D.step()
-
-        G_loss = self.generator_loss(discriminator, gt_img, gen_img)
-        perc_loss = self.perceptual_loss(gt_img, gen_img)
-        style_loss = self.style_loss(gen_img, src_img, src_mask)
-        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask)
+        G_loss = self.generator_loss(discriminator, gt_img, gen_img, freeze=False)
+        perc_loss = self.perceptual_loss(gt_img, gen_img) * self.lambda_perc
+        style_loss = self.style_loss(gen_img, src_img, src_mask) * self.lambda_style
+        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask) * self.lambda_cx
 
         G_loss = G_loss + perc_loss + style_loss + cx_loss
 
         self.optimizer_G.zero_grad()
         G_loss.backward()
-        base_function._unfreeze(discriminator)  # frozen in self.generator_loss
         self.optimizer_G.step()
+
+        D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
+        self.optimizer_D.zero_grad()
+        D_loss.backward()
+        self.optimizer_D.step()
 
         return D_loss, G_loss
 
