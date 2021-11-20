@@ -15,6 +15,7 @@ from modules.mask_detector import MaskDetector
 from modules.model import ReferenceFill
 from modules.pluralistic_model import base_function, network
 from modules.evaluations.fid import calculate_fid
+from modules.evaluations.ssim import SSIM
 
 
 def get_args():
@@ -141,7 +142,10 @@ def evaluate(generator, discriminator, val_loader, calc_loss, device, batch_size
     discriminator.eval()
     num_val_batches = len(val_loader)
 
-    running_loss_D, running_loss_G, fid_sum = 0, 0, 0
+    running_loss_D, running_loss_G, fid_sum, ssim_sum = 0, 0, 0, 0
+    resize = Resize((299,299)) #torchvision transform resize to [N, 3, 299, 299]
+    ssim_loss = SSIM() #SSIM module
+
     # iterate over the validation set
     for batch in tqdm(val_loader,
                       total=num_val_batches,
@@ -158,17 +162,17 @@ def evaluate(generator, discriminator, val_loader, calc_loss, device, batch_size
         gt_images = gt_images.to(device)  #[N, 3, H, W]
         true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
 
-        resize = Resize((299,299)) #torchvision transform resize to [N, 3, 299, 299]
-
         gen_images = generator(src_images, ref_images, src_mask=true_masks) #[N, 3, H, W]
-
+        
         fid_distance = calculate_fid(resize(gt_images),resize(gen_images),False, batch_size)
+        ssim = ssim_loss (gt_images,gen_images)
 
         loss_D, loss_G = calc_loss(discriminator, src_images, gt_images, ref_images,
                                    gen_images, true_masks)
         running_loss_D += loss_D.item()
         running_loss_G += loss_G.item()
         fid_sum += fid_distance
+        ssim_sum += ssim
 
     generator.train()
     discriminator.train()
@@ -176,8 +180,9 @@ def evaluate(generator, discriminator, val_loader, calc_loss, device, batch_size
     running_loss_D /= num_val_batches
     running_loss_G /= num_val_batches
     fid_sum /= num_val_batches
+    ssim_sum /= num_val_batches
 
-    return running_loss_D, running_loss_G, fid_sum
+    return running_loss_D, running_loss_G, fid_sum, ssim_sum
 
 
 def train_net(generator,
@@ -310,7 +315,7 @@ def train_net(generator,
                     }
                     # TODO: evaluation
                     if do_eval:
-                        val_loss_D, val_loss_G, fid = evaluate(generator, discriminator,
+                        val_loss_D, val_loss_G, fid, ssim = evaluate(generator, discriminator,
                                                           val_loader,
                                                           gan_optimizer.calc_loss, device, batch_size)
                         scheduler_D.step(val_loss_D)
@@ -318,9 +323,11 @@ def train_net(generator,
                         logging.info(f'G validation loss: {val_loss_G}')
                         logging.info(f'D validation loss: {val_loss_D}')
                         logging.info(f'FID : {fid}')
+                        logging.info(f'SSIM :  {ssim}')
                         exp_log_params['G validation loss'] = val_loss_G
                         exp_log_params['D validation loss'] = val_loss_D
                         exp_log_params['FID'] = fid
+                        exp_log_params['SSIM'] = ssim
 
                     experiment.log(exp_log_params)
 
