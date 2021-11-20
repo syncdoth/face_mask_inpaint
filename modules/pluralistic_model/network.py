@@ -99,8 +99,12 @@ class ResEncoder(nn.Module):
         for i in range(layers - 1):
             mult_prev = mult
             mult = min(2**(i + 1), img_f // ngf)
-            block = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult_prev, norm_layer,
-                             nonlinearity, 'down', use_spect, use_coord)
+            if i % 2 == 0:
+                block = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult_prev, norm_layer,
+                                 nonlinearity, 'none', use_spect, use_coord)
+            else:
+                block = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult_prev, norm_layer,
+                                 nonlinearity, 'down', use_spect, use_coord)
             setattr(self, 'encoder' + str(i), block)
 
     def forward(self, img):
@@ -151,15 +155,13 @@ class ResGenerator(nn.Module):
         for i in range(layers):
             mult_prev = mult
             mult = min(2**(layers - i - 1), img_f // ngf)
-            if i > layers - 1:
-                # upconv = ResBlock(ngf * mult_prev + output_nc, ngf * mult, ngf * mult, norm_layer, nonlinearity, 'up', True)
-                upconv = ResBlockDecoder(ngf * mult_prev + output_nc, ngf * mult,
-                                         ngf * mult, norm_layer, nonlinearity, use_spect,
-                                         use_coord)
-            else:
-                # upconv = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult, norm_layer, nonlinearity, 'up', True)
+            if i % 2 == 0:
                 upconv = ResBlockDecoder(ngf * mult_prev, ngf * mult, ngf * mult,
                                          norm_layer, nonlinearity, use_spect, use_coord)
+            else:
+                # actually not an upconv!
+                upconv = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult_prev,
+                                  norm_layer, nonlinearity, 'none', use_spect, use_coord)
             setattr(self, 'decoder' + str(i), upconv)
             # output part
             if i > layers - 2:
