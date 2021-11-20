@@ -40,6 +40,10 @@ def get_args():
     parser.add_argument('--identity_file_path', type=str, default='identity_CelebA.txt')
 
     # encoder args
+    parser.add_argument('--encoder_type',
+                        type=str,
+                        default='pluralistic',
+                        choices=['pluralistic', 'drn'])
     parser.add_argument('--encoder_ngf', type=int, default=32, help='base filters')
     parser.add_argument('--encoder_img_f', type=int, default=128, help='final filters')
     parser.add_argument('--encoder_layers', type=int, default=5)
