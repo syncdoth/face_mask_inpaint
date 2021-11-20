@@ -7,12 +7,11 @@ import torch
 import wandb
 from torch import optim
 from tqdm import tqdm
-from torchvision.transforms import Resize
 
 from dataloader import get_reference_dataloader
 from modules.loss import GANOptimizer
 from modules.mask_detector import MaskDetector
-from modules.model import ReferenceFill
+from modules.model import ReferenceFill, scale_img
 from modules.pluralistic_model import base_function, network
 from modules.evaluations.fid import calculate_fid
 from modules.evaluations.ssim import SSIM
@@ -23,7 +22,7 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=5, help='Number of epochs')
     parser.add_argument('--batch_size', dest='batch_size', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
-    parser.add_argument('--do_eval', type=int, default=1)
+    parser.add_argument('--eval_options', nargs="+", default={'ssim'})
     parser.add_argument('--debug',
                         type=int,
                         default=0,
@@ -95,7 +94,7 @@ def main():
     args = get_args()
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-    device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # load saved mask detector
     mask_detector = MaskDetector(n_channels=3, bilinear=True)
@@ -132,19 +131,25 @@ def main():
               save_checkpoint=True,
               dir_checkpoint=args.checkpoint_path,
               run_name=args.run_name,
-              do_eval=bool(args.do_eval),
+              eval_options=set(args.eval_options),
               debug=bool(args.debug))
 
 
 @torch.no_grad()
-def evaluate(generator, discriminator, val_loader, calc_loss, device, batch_size):
+def evaluate(generator,
+             discriminator,
+             val_loader,
+             calc_loss,
+             device,
+             batch_size,
+             options={'fid', 'ssim'}):
     generator.eval()
     discriminator.eval()
     num_val_batches = len(val_loader)
 
-    running_loss_D, running_loss_G, fid_sum, ssim_sum = 0, 0, 0, 0
-    resize = Resize((299,299)) #torchvision transform resize to [N, 3, 299, 299]
-    ssim_loss = SSIM() #SSIM module
+    metrics = {'D validation loss': 0, 'G validation loss': 0}
+    if 'ssim' in options:
+        ssim_loss = SSIM()  #SSIM module
 
     # iterate over the validation set
     for batch in tqdm(val_loader,
@@ -162,27 +167,36 @@ def evaluate(generator, discriminator, val_loader, calc_loss, device, batch_size
         gt_images = gt_images.to(device)  #[N, 3, H, W]
         true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
 
-        gen_images = generator(src_images, ref_images, src_mask=true_masks) #[N, 3, H, W]
-        
-        fid_distance = calculate_fid(resize(gt_images),resize(gen_images),False, batch_size)
-        ssim = ssim_loss (gt_images,gen_images)
+        gen_images = generator(src_images, ref_images, src_mask=true_masks)  #[N, 3, H, W]
 
+        # calculate metrics
+        if 'fid' in options:
+            fid_distance = calculate_fid(scale_img(gt_images, (299, 299)),
+                                         scale_img(gen_images, (299, 299)), False,
+                                         batch_size)
+            if 'fid' in metrics:
+                metrics['fid'] += fid_distance
+            else:
+                metrics['fid'] = fid_distance
+
+        if 'ssim' in options:
+            ssim = ssim_loss(gt_images, gen_images)
+            if 'ssim' in metrics:
+                metrics['ssim'] += ssim
+            else:
+                metrics['ssim'] = ssim
+
+        # now loss
         loss_D, loss_G = calc_loss(discriminator, src_images, gt_images, ref_images,
                                    gen_images, true_masks)
-        running_loss_D += loss_D.item()
-        running_loss_G += loss_G.item()
-        fid_sum += fid_distance
-        ssim_sum += ssim
+        metrics['D validation loss'] += loss_D.item()
+        metrics['G validation loss'] += loss_G.item()
 
     generator.train()
     discriminator.train()
 
-    running_loss_D /= num_val_batches
-    running_loss_G /= num_val_batches
-    fid_sum /= num_val_batches
-    ssim_sum /= num_val_batches
-
-    return running_loss_D, running_loss_G, fid_sum, ssim_sum
+    metrics = {k: v / num_val_batches for k, v in metrics.items()}
+    return metrics
 
 
 def train_net(generator,
@@ -196,7 +210,7 @@ def train_net(generator,
               save_checkpoint=True,
               dir_checkpoint=None,
               run_name='',
-              do_eval=True,
+              eval_options={'ssim', 'fid'},
               debug=False):
 
     n_train = len(train_loader.dataset)
@@ -313,22 +327,15 @@ def train_net(generator,
                         'epoch': epoch,
                         **histograms
                     }
-                    # TODO: evaluation
-                    if do_eval:
-                        val_loss_D, val_loss_G, fid, ssim = evaluate(generator, discriminator,
-                                                          val_loader,
-                                                          gan_optimizer.calc_loss, device, batch_size)
-                        scheduler_D.step(val_loss_D)
-                        scheduler_G.step(val_loss_G)
-                        logging.info(f'G validation loss: {val_loss_G}')
-                        logging.info(f'D validation loss: {val_loss_D}')
-                        logging.info(f'FID : {fid}')
-                        logging.info(f'SSIM :  {ssim}')
-                        exp_log_params['G validation loss'] = val_loss_G
-                        exp_log_params['D validation loss'] = val_loss_D
-                        exp_log_params['FID'] = fid
-                        exp_log_params['SSIM'] = ssim
-
+                    if len(eval_options) > 0:
+                        metrics = evaluate(generator, discriminator, val_loader,
+                                           gan_optimizer.calc_loss, device, batch_size,
+                                           eval_options)
+                        scheduler_D.step(metrics['D validation loss'])
+                        scheduler_G.step(metrics['G validation loss'])
+                        for k, v in metrics.items():
+                            logging.info(f'{k}: {v}')
+                            exp_log_params[k] = v
                     experiment.log(exp_log_params)
 
         if save_checkpoint:
