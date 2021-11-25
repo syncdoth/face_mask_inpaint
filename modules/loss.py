@@ -9,6 +9,7 @@ from modules.pluralistic_model import base_function
 from modules.pluralistic_model.external_function import GANLoss
 from modules.pluralistic_model.external_function import StyleLoss
 from modules.pluralistic_model.external_function import contextual_loss
+from modules.model import scale_img
 
 
 #Implementation mainly from https://gist.github.com/alper111/8233cdb0414b4cb5853f2f730ab95a49
@@ -17,10 +18,11 @@ class VGGLoss(torch.nn.Module):
     def __init__(self):
         super(VGGLoss, self).__init__()
         blocks = []
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
+        pretrained_vgg = torchvision.models.vgg16(pretrained=True)
+        blocks.append(pretrained_vgg.features[:4].eval())
+        blocks.append(pretrained_vgg.features[4:9].eval())
+        blocks.append(pretrained_vgg.features[9:16].eval())
+        blocks.append(pretrained_vgg.features[16:23].eval())
         for bl in blocks:
             for p in bl.parameters():
                 p.requires_grad = False
@@ -29,9 +31,22 @@ class VGGLoss(torch.nn.Module):
         self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
+    def rescale_images(self, images):
+        ret = []
+        for img in images:
+            if len(img.shape) < 4:
+                img = img.unsqueeze(1)
+                ret.append(scale_img(img, [224, 224]).squeeze(1))
+            else:
+                ret.append(scale_img(img, [224, 224]))
+
+        return ret
+
     def forward(self, input, target, lossType='perceptual'):
         # Perceptual Loss : input = gen_img, target = gt_img
         # Style Loss : input = gen_img * src_mask, target = src_img,
+        if (input.shape[-2], input.shape[-1]) == (224, 224):
+            input, target = self.rescale_images([input, target])
         input = (input - self.mean) / self.std
         target = (target - self.mean) / self.std
         loss = 0.0
@@ -45,7 +60,7 @@ class VGGLoss(torch.nn.Module):
                 loss += torch.nn.functional.l1_loss(x, y) / dim
             elif lossType == 'style':  #style
                 loss += StyleLoss(x, y) / (x.shape[1] * x.shape[1] * dim)
-            elif (lossType == 'contextual' and i > 1):
+            elif (lossType == 'contextual' and i > 2):  # use 4th block only
                 loss += contextual_loss(x, y) / dim
         return loss
 

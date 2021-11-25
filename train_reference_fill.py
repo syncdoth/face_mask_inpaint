@@ -27,6 +27,7 @@ def get_args():
                         type=int,
                         default=0,
                         help='debug with turning off not implemented parts')
+    parser.add_argument('--img_scale', type=float, default=1.)
 
     # path args
     parser.add_argument('--run_name', type=str, default='', help='exp name')
@@ -118,7 +119,8 @@ def main():
                                                         args.identity_file_path,
                                                         args.batch_size,
                                                         val_amount=0.1,
-                                                        num_workers=os.cpu_count())
+                                                        num_workers=os.cpu_count(),
+                                                        img_scale=args.img_scale)
 
     train_net(generator,
               discriminator,
