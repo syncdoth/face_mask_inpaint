@@ -38,6 +38,7 @@ def get_args():
     parser.add_argument('--ref_img_path', type=str, default='img_align_celeba')
     parser.add_argument('--mask_path', type=str, default='binary_map')
     parser.add_argument('--identity_file_path', type=str, default='identity_CelebA.txt')
+    parser.add_argument('--use_best_reference', type=int, default=0)
 
     # encoder args
     parser.add_argument('--encoder_ngf', type=int, default=32, help='base filters')
@@ -120,7 +121,8 @@ def main():
                                                         args.batch_size,
                                                         val_amount=0.1,
                                                         num_workers=os.cpu_count(),
-                                                        img_scale=args.img_scale)
+                                                        img_scale=args.img_scale,
+                                                        use_ssim=args.use_best_reference)
 
     train_net(generator,
               discriminator,
