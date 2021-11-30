@@ -179,10 +179,9 @@ class ReferenceDataset(BasicDataset):
                 gt_img = self.load(gt_file)
                 gt_img = self.preprocess(gt_img, self.scale, is_mask=False)
                 gt_img_tensor = torch.as_tensor(gt_img.copy()).float().contiguous().unsqueeze(0).to(device)
-            
+                max_score = -10
+                best_ref = None
                 for ref_image_name in self.identity_map[self.img2identity[name]]:
-                    max_score = 0
-                    best_ref = None
                     if (ref_image_name != name):
                         ref_file = self.reference_dir / Path(ref_image_name + '.jpg')
                         ref_img = self.load(ref_file)
@@ -199,6 +198,8 @@ class ReferenceDataset(BasicDataset):
 
     def sample_reference_image(self, img_name):
         if (self.ssim):
+            print (img_name)
+            print (self.best_reference_map[img_name])
             return self.best_reference_map[img_name]
 
         images = self.identity_map[self.img2identity[img_name]]
