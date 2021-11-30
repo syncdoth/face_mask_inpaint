@@ -60,7 +60,7 @@ class VGGLoss(torch.nn.Module):
                 loss += torch.nn.functional.l1_loss(x, y) / dim
             elif lossType == 'style':  #style
                 loss += StyleLoss(x, y) / (x.shape[1] * x.shape[1] * dim)
-            elif (lossType == 'contextual' and i > 2):  # use 4th block only
+            elif (lossType == 'contextual' and i > 1):  # use 3,4 block only
                 loss += contextual_loss(x, y) / dim
         return loss
 
@@ -134,14 +134,14 @@ class GANOptimizer(nn.Module):
         D_loss.backward()
         self.optimizer_D.step()
 
-        return D_loss, G_loss
+        return D_loss, G_loss, perc_loss, style_loss, cx_loss
 
     def calc_loss(self, discriminator, src_img, gt_img, ref_img, gen_img, src_mask):
         D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
         G_loss = self.generator_loss(discriminator, gt_img, gen_img, freeze=False)
-        perc_loss = self.perceptual_loss(gt_img, gen_img)
-        style_loss = self.style_loss(gen_img, src_img, src_mask)
-        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask)
+        perc_loss = self.perceptual_loss(gt_img, gen_img) * self.lambda_perc
+        style_loss = self.style_loss(gen_img, src_img, src_mask) * self.lambda_style
+        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask) * self.lambda_cx
 
         G_loss = G_loss + perc_loss + style_loss + cx_loss
         return D_loss, G_loss

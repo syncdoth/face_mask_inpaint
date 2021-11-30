@@ -246,8 +246,9 @@ class ResDiscriminator(nn.Module):
             model = getattr(self, 'encoder' + str(i))
             out = model(out)
         out = self.block1(out)
-        out = self.conv(self.nonlinearity(out))
-        return out
+        out = self.conv(self.nonlinearity(out))  # [N, 1, H, W]
+        out = out.reshape(out.shape[0], 1, -1)
+        return out.mean(-1)  # [N, 1]
 
 
 class PatchDiscriminator(nn.Module):
