@@ -22,13 +22,15 @@ def get_reference_dataloader(dir_src_img,
                              val_amount=0.1,
                              num_workers=4,
                              img_scale=1.0,
-                             use_ssim=False):
+                             use_ssim=False,
+                             device=None):
     dataset = ReferenceDataset(dir_src_img,
                                dir_ref_img,
                                dir_mask,
                                identity_file,
                                scale=img_scale,
-                               use_ssim=use_ssim)
+                               use_ssim=use_ssim,
+                               device=device)
     n_train = math.floor(len(dataset) * (1 - val_amount))
     n_val = math.ceil(len(dataset) * val_amount)
 
@@ -117,7 +119,7 @@ class BasicDataset(Dataset):
 
 class ReferenceDataset(BasicDataset):
 
-    def __init__(self, source_dir, reference_dir, masks_dir, identity_file, scale=1.0, use_ssim = False):
+    def __init__(self, source_dir, reference_dir, masks_dir, identity_file, scale=1.0, use_ssim = False,device=None):
         self.source_dir = Path(source_dir)
         self.masks_dir = Path(masks_dir)
         self.reference_dir = Path(reference_dir)
@@ -143,7 +145,7 @@ class ReferenceDataset(BasicDataset):
         if use_ssim:
             logging.info(f'Creating best_reference_map')
             self.ssim = SSIM()
-            self.best_reference_map = self.find_best_reference()
+            self.best_reference_map = self.find_best_reference(device)
 
     def read_identity_file(self, identity_file):
         identity_map = {}
@@ -162,7 +164,7 @@ class ReferenceDataset(BasicDataset):
                     identity_map[identity] = [img_id]
         return identity_map, img2identity
     
-    def find_best_reference(self):
+    def find_best_reference(self, device):
         best_reference_map = {}
         my_file = self.source_dir.parent / Path('best_reference_map.pkl')
         if my_file.is_file():
@@ -176,7 +178,7 @@ class ReferenceDataset(BasicDataset):
                 gt_file = self.reference_dir / Path(name + '.jpg')
                 gt_img = self.load(gt_file)
                 gt_img = self.preprocess(gt_img, self.scale, is_mask=False)
-                gt_img_tensor = torch.as_tensor(gt_img.copy()).float().contiguous().unsqueeze(0)
+                gt_img_tensor = torch.as_tensor(gt_img.copy()).float().contiguous().unsqueeze(0).to(device)
             
                 for ref_image_name in self.identity_map[self.img2identity[name]]:
                     max_score = 0
@@ -185,7 +187,7 @@ class ReferenceDataset(BasicDataset):
                         ref_file = self.reference_dir / Path(ref_image_name + '.jpg')
                         ref_img = self.load(ref_file)
                         ref_img = self.preprocess(ref_img, self.scale, is_mask=False)
-                        ref_img_tensor = torch.as_tensor(ref_img.copy()).float().contiguous().unsqueeze(0)
+                        ref_img_tensor = torch.as_tensor(ref_img.copy()).float().contiguous().unsqueeze(0).to(device)
                         score = self.ssim(gt_img_tensor,ref_img_tensor)
                         if (score > max_score):
                             max_score = score

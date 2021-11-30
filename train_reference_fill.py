@@ -122,7 +122,8 @@ def main():
                                                         val_amount=0.1,
                                                         num_workers=os.cpu_count(),
                                                         img_scale=args.img_scale,
-                                                        use_ssim=args.use_best_reference)
+                                                        use_ssim=args.use_best_reference,
+                                                        device = device)
 
     train_net(generator,
               discriminator,
