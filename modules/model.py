@@ -4,6 +4,7 @@ from torch import nn
 
 from modules.example_guided_att import ExampleGuidedAttention
 from modules.pluralistic_model import network
+from modules.drn import *
 
 
 def scale_img(img, size):
@@ -38,8 +39,28 @@ class ReferenceFill(nn.Module):
         """
         super().__init__()
         self.mask_detector = mask_detector
-        self.src_encoder = network.define_e(**encoder_params)
-        self.ref_encoder = network.define_e(**encoder_params)
+        encoder_type = encoder_params.pop('type')
+        if encoder_type == 'drn':
+            self.src_encoder = drn_c_42(pretrained=True, out_map=True)
+            self.src_encoder.fc = torch.nn.Conv2d(self.src_encoder.out_dim,
+                                                  encoder_params['img_f'],
+                                                  kernel_size=1,
+                                                  stride=1,
+                                                  padding=0,
+                                                  bias=True)
+            self.ref_encoder = drn_c_42(pretrained=True, out_map=True)
+            self.ref_encoder.fc = torch.nn.Conv2d(self.ref_encoder.out_dim,
+                                                  encoder_params['img_f'],
+                                                  kernel_size=1,
+                                                  stride=1,
+                                                  padding=0,
+                                                  bias=True)
+            decoder_params['layers'] = 6
+        elif encoder_type == 'pluralistic':
+            self.src_encoder = network.define_e(**encoder_params)
+            self.ref_encoder = network.define_e(**encoder_params)
+        else:
+            raise NotImplementedError
         self.decoder = network.define_g(**decoder_params)
 
         self.use_att = use_att
