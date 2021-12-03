@@ -81,11 +81,12 @@ class BasicDataset(Dataset):
 
         if img_ndarray.ndim == 2 and not is_mask:
             img_ndarray = img_ndarray[np.newaxis, ...]
-            img_ndarray = torch.as_tensor(img_ndarray.copy()).long().contiguous()
-        elif not is_mask:
+        if not is_mask:
             img_ndarray = img_ndarray.transpose((2, 0, 1))
             img_ndarray = img_ndarray / 255
             img_ndarray = torch.as_tensor(img_ndarray.copy()).float().contiguous()
+        else:
+            img_ndarray = torch.as_tensor(img_ndarray.copy()).long().contiguous()
 
         return img_ndarray
 
