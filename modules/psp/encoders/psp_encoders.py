@@ -6,6 +6,7 @@ from torch.nn import Linear, Conv2d, BatchNorm2d, PReLU, Sequential, Module
 
 from modules.psp.encoders.helpers import get_blocks, Flatten, bottleneck_IR, bottleneck_IR_SE
 from modules.psp.stylegan2.model import EqualLinear
+from modules.model import scale_img
 
 
 class GradualStyleBlock(Module):
@@ -90,7 +91,7 @@ class GradualStyleEncoder(Module):
         _, _, H, W = y.size()
         return F.interpolate(x, size=(H, W), mode='bilinear', align_corners=True) + y
 
-    def forward(self, x):
+    def forward(self, x, ref=None, mask=None):
         x = self.input_layer(x)
 
         latents = []
@@ -103,6 +104,27 @@ class GradualStyleEncoder(Module):
                 c2 = x  # [N, 512, 32, 32]
             elif i == 23:
                 c3 = x  # [N, 512, 16, 16]
+        # for reference
+        if ref is not None:
+            assert mask is not None, "ref and mask should both be provided"
+            mask = mask.unsqueeze(1)  # [N, 1, 256, 256]
+            ref = self.input_layer(ref)
+            for i, l in enumerate(modulelist):
+                ref = l(ref)
+                if i == 6:
+                    r1 = ref  # [N, 512, 64, 64]
+                elif i == 20:
+                    r2 = ref  # [N, 512, 32, 32]
+                elif i == 23:
+                    r3 = ref  # [N, 512, 16, 16]
+
+            mask_3 = scale_img(mask, r3.shape[-2:])
+            c3 = mask_3 * r3 + (1 - mask_3) * c3
+            mask_2 = scale_img(mask, r2.shape[-2:])
+            c2 = mask_2 * r2 + (1 - mask_2) * c2
+            mask_1 = scale_img(mask, r1.shape[-2:])
+            c1 = mask_1 * r1 + (1 - mask_1) * c1
+
         for j in range(self.coarse_ind):
             latents.append(self.styles[j](c3))
 

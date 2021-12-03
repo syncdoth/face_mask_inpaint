@@ -70,6 +70,8 @@ class pSp(nn.Module):
 
     def forward(self,
                 x,
+                ref=None,
+                src_mask=None,
                 resize=True,
                 latent_mask=None,
                 input_code=False,
@@ -80,7 +82,7 @@ class pSp(nn.Module):
         if input_code:
             codes = x
         else:
-            codes = self.encoder(x)  # [N, 18, 512]
+            codes = self.encoder(x, ref=ref, mask=src_mask)  # [N, 18, 512]
             # normalize with respect to the center of an average face
             if self.opts.start_from_latent_avg:
                 if self.opts.learn_in_w:

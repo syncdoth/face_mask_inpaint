@@ -6,13 +6,12 @@ from pathlib import Path
 import torch
 import wandb
 from torch import optim
-import torch.nn.functional as F
 from tqdm import tqdm
 
 from dataloader import get_reference_dataloader
 from modules.mask_detector import MaskDetector
 from modules.model import scale_img
-from modules.pluralistic_model import base_function, network
+from modules.pluralistic_model import base_function
 from modules.evaluations.fid import calculate_fid
 from modules.evaluations.ssim import SSIM
 
@@ -34,6 +33,7 @@ def get_args():
                         help='debug with turning off not implemented parts')
     parser.add_argument('--img_scale', type=float, default=1.)
     parser.add_argument('--optimizer', type=str, default='adam')
+    parser.add_argument('--use_ref', action='store_true', help='use reference image')
 
     # path args
     parser.add_argument('--run_name', type=str, default='', help='exp name')
@@ -118,7 +118,6 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    args.device = device
 
     # load saved mask detector
     mask_detector = MaskDetector(n_channels=3, bilinear=True)
@@ -138,7 +137,8 @@ def main():
                                                         args.batch_size,
                                                         val_amount=0.1,
                                                         num_workers=os.cpu_count(),
-                                                        img_scale=args.img_scale)
+                                                        img_scale=args.img_scale,
+                                                        use_ssim=True)
 
     train_net(generator,
               device,
@@ -162,6 +162,7 @@ def evaluate(generator,
              device,
              batch_size,
              latent_avg=None,
+             use_ref=True,
              options={'fid', 'ssim'}):
     generator.eval()
     num_val_batches = len(val_loader)
@@ -177,19 +178,33 @@ def evaluate(generator,
                       unit='batch',
                       leave=False):
         src_images = batch['src_img']
-        true_masks = batch['mask']
-        # ref_images = batch['ref_img']
         gt_images = batch['gt_img']
         raw_gt_img = batch['raw_gt_img']
 
         src_images = src_images.to(device)  #[N, 3, H, W]
-        # ref_images = ref_images.to(device)  #[N, 3, H, W]
         gt_images = gt_images.to(device)  #[N, 3, H, W]
         raw_gt_img = raw_gt_img.to(device)
-        true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
-        # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
-        gen_images, latent = generator(src_images, return_latents=True)  #[N, 3, H, W]
+        if use_ref:
+            ref_images = batch['ref_img'].to(device)  # [N, 3, H, W]
+            true_masks = (batch['mask'] > 0).float().to(device)  # [N, H, W]
+            ref_images = ref_images
+            # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
+        else:
+            ref_images = true_masks = None
+        gen_images, latent = generator(src_images,
+                                       ref=ref_images,
+                                       src_mask=true_masks,
+                                       return_latents=True)  #[N, 3, H, W]
 
+        # now loss
+        loss, _, _ = calc_loss(src_images,
+                               gt_images,
+                               gen_images,
+                               latent,
+                               latent_avg=latent_avg)
+        metrics['val loss'] += loss.item()
+
+        gen_images = (gen_images + 1) / 2
         # calculate metrics
         if 'fid' in options:
             fid_distance = calculate_fid(scale_img(raw_gt_img, (299, 299)),
@@ -206,14 +221,6 @@ def evaluate(generator,
                 metrics['ssim'] += ssim
             else:
                 metrics['ssim'] = ssim
-
-        # now loss
-        loss, _, _ = calc_loss(src_images,
-                               gt_images,
-                               gen_images,
-                               latent,
-                               latent_avg=latent_avg)
-        metrics['val loss'] += loss.item()
 
     generator.train()
 
@@ -281,18 +288,18 @@ def train_net(generator,
         epoch_loss = 0
         with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}', unit='img') as pbar:
             for batch in train_loader:
-                src_images = batch['src_img']
-                # true_masks = batch['mask']
-                # ref_images = batch['ref_img']
-                gt_images = batch['gt_img']
-
-                src_images = src_images.to(device)  #[N, 3, H, W]
-                # ref_images = ref_images.to(device)  #[N, 3, H, W]
-                gt_images = gt_images.to(device)  #[N, 3, H, W]
-                # true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
-
-                # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
+                src_images = batch['src_img'].to(device)  # [N, 3, H, W]
+                gt_images = batch['gt_img'].to(device)  # [N, 3, H, W]
+                if args.use_ref:
+                    ref_images = batch['ref_img'].to(device)  # [N, 3, H, W]
+                    true_masks = (batch['mask'] > 0).float().to(device)  # [N, H, W]
+                    ref_images = ref_images
+                    # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
+                else:
+                    ref_images = true_masks = None
                 gen_images, latent = generator(src_images,
+                                               ref=ref_images,
+                                               src_mask=true_masks,
                                                return_latents=True,
                                                randomize_noise=args.randomize_noise)
                 loss, loss_dict, id_logs = psp_loss(src_images,
@@ -332,7 +339,7 @@ def train_net(generator,
                     exp_log_params = {
                         'learning rate': optimizer.param_groups[0]['lr'],
                         'src_images': wandb.Image(src_images[0].cpu()),
-                        # 'ref_images': wandb.Image(ref_images[0].cpu()),
+                        'ref_images': wandb.Image(ref_images[0].cpu()),
                         'gen_images': wandb.Image(gen_images[0].cpu()),
                         'gt_images': wandb.Image(gt_images[0].cpu()),
                         'step': global_step,
@@ -345,6 +352,7 @@ def train_net(generator,
                                            psp_loss,
                                            device,
                                            batch_size,
+                                           use_ref=args.use_ref,
                                            latent_avg=generator.latent_avg,
                                            options=eval_options)
                         scheduler.step(metrics['val loss'])
