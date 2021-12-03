@@ -307,20 +307,24 @@ def train_net(generator,
                                                     gen_images,
                                                     latent,
                                                     latent_avg=generator.latent_avg)
+                if not torch.isfinite(loss):
+                    # TODO: The batch['gt_img'].to(device) makes problem:
+                    # the values get changed to very large number
+                    pass
+                else:
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
 
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                pbar.update(src_images.shape[0])
-                global_step += 1
-                epoch_loss += loss.item()
-                experiment.log({
-                    **loss_dict,
-                    'step': global_step,
-                    'epoch': epoch,
-                })
-                pbar.set_postfix(**loss_dict)
+                    pbar.update(src_images.shape[0])
+                    global_step += 1
+                    epoch_loss += loss.item()
+                    experiment.log({
+                        **loss_dict,
+                        'step': global_step,
+                        'epoch': epoch,
+                    })
+                    pbar.set_postfix(**loss_dict)
 
                 # Evaluation round
                 division_step = (n_train // (10 * batch_size))
@@ -339,13 +343,14 @@ def train_net(generator,
                     exp_log_params = {
                         'learning rate': optimizer.param_groups[0]['lr'],
                         'src_images': wandb.Image(src_images[0].cpu()),
-                        'ref_images': wandb.Image(ref_images[0].cpu()),
                         'gen_images': wandb.Image(gen_images[0].cpu()),
                         'gt_images': wandb.Image(gt_images[0].cpu()),
                         'step': global_step,
                         'epoch': epoch,
                         **histograms
                     }
+                    if ref_images is not None:
+                        exp_log_params['ref_images'] = wandb.Image(ref_images[0].cpu())
                     if len(eval_options) > 0:
                         metrics = evaluate(generator,
                                            val_loader,
