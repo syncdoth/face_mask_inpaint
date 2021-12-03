@@ -19,6 +19,7 @@ from modules.evaluations.ssim import SSIM
 # psp
 from modules.psp.psp import pSp
 from modules.psp.criteria import pSpLoss
+from modules.psp.ranger import Ranger
 
 
 def get_args():
@@ -32,6 +33,7 @@ def get_args():
                         default=0,
                         help='debug with turning off not implemented parts')
     parser.add_argument('--img_scale', type=float, default=1.)
+    parser.add_argument('--optimizer', type=str, default='adam')
 
     # path args
     parser.add_argument('--run_name', type=str, default='', help='exp name')
@@ -60,6 +62,9 @@ def get_args():
     parser.add_argument('--learn_in_w',
                         action='store_true',
                         help='Whether to learn in w space instead of w+')
+    parser.add_argument('--randomize_noise',
+                        action='store_true',
+                        help='whether to randomize noise in stylegan')
 
     # loss weights
     parser.add_argument('--lpips_lambda',
@@ -161,7 +166,7 @@ def evaluate(generator,
     generator.eval()
     num_val_batches = len(val_loader)
 
-    metrics = {'loss': 0}
+    metrics = {'val loss': 0}
     if 'ssim' in options:
         ssim_loss = SSIM()  #SSIM module
 
@@ -180,6 +185,7 @@ def evaluate(generator,
         src_images = src_images.to(device)  #[N, 3, H, W]
         # ref_images = ref_images.to(device)  #[N, 3, H, W]
         gt_images = gt_images.to(device)  #[N, 3, H, W]
+        raw_gt_img = raw_gt_img.to(device)
         true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
         # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
         gen_images, latent = generator(src_images, return_latents=True)  #[N, 3, H, W]
@@ -207,7 +213,7 @@ def evaluate(generator,
                                gen_images,
                                latent,
                                latent_avg=latent_avg)
-        metrics['loss'] += loss.item()
+        metrics['val loss'] += loss.item()
 
     generator.train()
 
@@ -257,7 +263,10 @@ def train_net(generator,
     dir_checkpoint = dir_checkpoint / Path(run_name)
     dir_checkpoint.mkdir(parents=True, exist_ok=True)
 
-    optimizer = optim.Adam(generator.encoder.parameters(), lr=learning_rate)
+    if args.optimizer == 'adam':
+        optimizer = optim.Adam(generator.encoder.parameters(), lr=learning_rate)
+    elif args.optimizer == 'ranger':
+        optimizer = Ranger(generator.encoder.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                      'max',
                                                      patience=2,
@@ -283,7 +292,9 @@ def train_net(generator,
                 # true_masks = (true_masks > 0).float().to(device)  #[N, H, W]
 
                 # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
-                gen_images, latent = generator(src_images, return_latents=True)
+                gen_images, latent = generator(src_images,
+                                               return_latents=True,
+                                               randomize_noise=args.randomize_noise)
                 loss, loss_dict, id_logs = psp_loss(src_images,
                                                     gt_images,
                                                     gen_images,
@@ -336,7 +347,7 @@ def train_net(generator,
                                            batch_size,
                                            latent_avg=generator.latent_avg,
                                            options=eval_options)
-                        scheduler.step(metrics['loss'])
+                        scheduler.step(metrics['val loss'])
                         for k, v in metrics.items():
                             logging.info(f'{k}: {v}')
                             exp_log_params[k] = v
