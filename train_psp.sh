@@ -1,0 +1,12 @@
+python train_psp.py \
+--batch_size 2 --learning_rate 1e-4 --img_scale 0.25 --start_from_latent_avg \
+--lpips_lambda=0.08 \
+--l2_lambda=0.001 \
+--lpips_lambda_crop=0.8 \
+--l2_lambda_crop=0.01 \
+--id_lambda=1 \
+--w_norm_lambda=0.005 \
+--run_name pSp_no_ref_full_loss \
+--data_root /data/mohaa/project1/CelebAHQ \
+--src_img_path images_masked --ref_img_path images --mask_path binary_map \
+--identity_file_path CelebA-HQ-identity.txt

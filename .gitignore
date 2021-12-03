@@ -3,3 +3,4 @@
 *checkpoints_mask_detector/
 *wandb/
 saved_model/
+pretrained_models/

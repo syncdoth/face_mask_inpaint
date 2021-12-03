@@ -1,5 +1,6 @@
 import logging
 import math
+import pickle
 import random
 from os import listdir
 from os.path import splitext
@@ -9,8 +10,9 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, random_split
+from torchvision import transforms
 from tqdm import tqdm
-import pickle
+
 from modules.evaluations.ssim import SSIM
 
 
@@ -79,11 +81,11 @@ class BasicDataset(Dataset):
 
         if img_ndarray.ndim == 2 and not is_mask:
             img_ndarray = img_ndarray[np.newaxis, ...]
+            img_ndarray = torch.as_tensor(img_ndarray.copy()).long().contiguous()
         elif not is_mask:
             img_ndarray = img_ndarray.transpose((2, 0, 1))
-
-        if not is_mask:
             img_ndarray = img_ndarray / 255
+            img_ndarray = torch.as_tensor(img_ndarray.copy()).float().contiguous()
 
         return img_ndarray
 
@@ -161,6 +163,8 @@ class ReferenceDataset(BasicDataset):
                 self.ssim = SSIM()
                 self.best_reference_map = self.find_best_reference(device)
 
+        self.transform = transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+
     def read_identity_file(self, identity_file):
         identity_map = {}
         img2identity = {}
@@ -233,14 +237,16 @@ class ReferenceDataset(BasicDataset):
         assert src_img.size == mask.size, \
             'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
-        src_img = self.preprocess(src_img, self.scale, is_mask=False)
-        gt_img = self.preprocess(gt_img, self.scale, is_mask=False)
-        ref_img = self.preprocess(ref_img, self.scale, is_mask=False)
+        src_img = self.transform(self.preprocess(src_img, self.scale, is_mask=False))
+        raw_gt_img = self.preprocess(gt_img, self.scale, is_mask=False)
+        gt_img = self.transform(raw_gt_img)
+        ref_img = self.transform(self.preprocess(ref_img, self.scale, is_mask=False))
         mask = self.preprocess(mask, self.scale, is_mask=True)
 
         return {
-            'src_img': torch.as_tensor(src_img.copy()).float().contiguous(),
-            'gt_img': torch.as_tensor(gt_img.copy()).float().contiguous(),
-            'ref_img': torch.as_tensor(ref_img.copy()).float().contiguous(),
-            'mask': torch.as_tensor(mask.copy()).long().contiguous()
+            'src_img': src_img,
+            'gt_img': gt_img,
+            'raw_gt_img': raw_gt_img,
+            'ref_img': ref_img,
+            'mask': mask
         }
