@@ -92,6 +92,7 @@ def get_args():
                         type=float,
                         help='L2 loss multiplier factor for inner image region')
     parser.add_argument('--moco_lambda', default=0, type=float, help='moco_lambda')
+    parser.add_argument('--style_lambda', default=250, type=float)
 
     # pretrained weight paths
     parser.add_argument('--stylegan_weights',
@@ -201,7 +202,9 @@ def evaluate(generator,
                                gt_images,
                                gen_images,
                                latent,
-                               latent_avg=latent_avg)
+                               latent_avg=latent_avg,
+                               ref=ref_images,
+                               mask=true_masks)
         metrics['val loss'] += loss.item()
 
         gen_images = (gen_images + 1) / 2
@@ -293,7 +296,6 @@ def train_net(generator,
                 if args.use_ref:
                     ref_images = batch['ref_img'].to(device)  # [N, 3, H, W]
                     true_masks = (batch['mask'] > 0).float().to(device)  # [N, H, W]
-                    ref_images = ref_images
                     # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
                 else:
                     ref_images = true_masks = None
@@ -306,7 +308,9 @@ def train_net(generator,
                                                     gt_images,
                                                     gen_images,
                                                     latent,
-                                                    latent_avg=generator.latent_avg)
+                                                    latent_avg=generator.latent_avg,
+                                                    ref=ref_images,
+                                                    mask=true_masks)
                 if not torch.isfinite(loss):
                     # TODO: The batch['gt_img'].to(device) makes problem:
                     # the values get changed to very large number

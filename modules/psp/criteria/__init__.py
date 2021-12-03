@@ -3,6 +3,7 @@ import torch.nn.functional as F
 
 from modules.psp.criteria import id_loss, w_norm, moco_loss
 from modules.psp.criteria.lpips.lpips import LPIPS
+from modules.loss import VGGLoss
 
 
 class pSpLoss(nn.Module):
@@ -17,6 +18,8 @@ class pSpLoss(nn.Module):
         self.l2_lambda = args.l2_lambda
         self.lpips_lambda_crop = args.lpips_lambda_crop
         self.l2_lambda_crop = args.l2_lambda_crop
+        self.style_lambda = args.style_lambda
+        # self.cx_lambda = args.cx_lambda
         if self.id_lambda > 0 and self.moco_lambda > 0:
             raise ValueError(
                 'Both ID and MoCo loss have lambdas > 0! Please select only one to have non-zero lambda!'
@@ -32,8 +35,18 @@ class pSpLoss(nn.Module):
                 start_from_latent_avg=args.start_from_latent_avg)
         if self.moco_lambda > 0:
             self.moco_loss = moco_loss.MocoLoss().eval()
+        if self.style_lambda > 0:
+            self.vgg_loss = VGGLoss()
 
-    def __call__(self, x, y, y_hat, latent, latent_avg=None):
+    def style_loss(self, y_hat, src_img, src_mask):
+        src_mask = (1 - src_mask).unsqueeze(1)  # Yes inverse
+        return self.vgg_loss(y_hat * src_mask, src_img, lossType='style')
+
+    def contextual_loss(self, y_hat, ref_img, src_mask):
+        src_mask = src_mask.unsqueeze(1)  # No inverse
+        return self.vgg_loss(y_hat * src_mask, ref_img * src_mask, lossType='contextual')
+
+    def __call__(self, x, y, y_hat, latent, latent_avg=None, ref=None, mask=None):
         loss_dict = {}
         loss = 0.0
         id_logs = None
@@ -69,6 +82,12 @@ class pSpLoss(nn.Module):
             loss_dict['loss_moco'] = float(loss_moco)
             loss_dict['id_improve'] = float(sim_improvement)
             loss += loss_moco * self.moco_lambda
+        if self.style_lambda > 0:
+            style_loss = self.style_loss(y_hat, x, mask) * self.style_lambda
+            loss_dict['loss_style'] = float(style_loss)
+        # if self.cx_lambda > 0:
+        #     cx_loss = self.contextual_loss(y_hat, ref, mask) * self.cx_lambda
+        #     loss_dict['loss_context'] = float(cx_loss)
 
         loss_dict['loss'] = float(loss)
         return loss, loss_dict, id_logs
