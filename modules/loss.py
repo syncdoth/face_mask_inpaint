@@ -45,7 +45,7 @@ class VGGLoss(torch.nn.Module):
     def forward(self, input, target, lossType='perceptual'):
         # Perceptual Loss : input = gen_img, target = gt_img
         # Style Loss : input = gen_img * src_mask, target = src_img,
-        if (input.shape[-2], input.shape[-1]) == (224, 224):
+        if input.shape[-1] > 224: #Filter HQ
             input, target = self.rescale_images([input, target])
         input = (input - self.mean) / self.std
         target = (target - self.mean) / self.std
@@ -60,7 +60,7 @@ class VGGLoss(torch.nn.Module):
                 loss += torch.nn.functional.l1_loss(x, y) / dim
             elif lossType == 'style':  #style
                 loss += StyleLoss(x, y) / (x.shape[1] * x.shape[1] * dim)
-            elif (lossType == 'contextual' and i > 2):  # use 4th block only
+            elif (lossType == 'contextual' and i > 1):  # use 3,4 block only
                 loss += contextual_loss(x, y) / dim
         return loss
 
@@ -118,30 +118,49 @@ class GANOptimizer(nn.Module):
         return G_loss
 
     def __call__(self, discriminator, src_img, gt_img, ref_img, gen_img, src_mask):
+        
+        # try:
+        #     G_loss = self.generator_loss(discriminator, gt_img, gen_img, freeze=False)
+        #     perc_loss = self.perceptual_loss(gt_img, gen_img) * self.lambda_perc
+        #     style_loss = self.style_loss(gen_img, src_img, src_mask) * self.lambda_style
+        #     cx_loss = self.contextual_loss(gen_img, ref_img, src_mask) * self.lambda_cx
+        #     G_loss = G_loss + perc_loss + style_loss + cx_loss
+        #     self.optimizer_G.zero_grad()
+        #     G_loss.backward()
+        #     self.optimizer_G.step()
+        #     D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
+        #     self.optimizer_D.zero_grad()
+        #     D_loss.backward()
+        #     self.optimizer_D.step()
+        #     return D_loss, G_loss
+        # except:
+        #     print ('gt', gt_img)
+        #     print ('gen',gen_img)
+        #     print ('ref',ref_img)
+        #     print ('src',src_img)
+        #     print ('src_mask',src_mask)
+        #     print (f'Loss: {G_loss} {perc_loss} {style_loss} {cx_loss}')
         G_loss = self.generator_loss(discriminator, gt_img, gen_img, freeze=False)
         perc_loss = self.perceptual_loss(gt_img, gen_img) * self.lambda_perc
         style_loss = self.style_loss(gen_img, src_img, src_mask) * self.lambda_style
         cx_loss = self.contextual_loss(gen_img, ref_img, src_mask) * self.lambda_cx
-
         G_loss = G_loss + perc_loss + style_loss + cx_loss
-
         self.optimizer_G.zero_grad()
         G_loss.backward()
         self.optimizer_G.step()
-
         D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
         self.optimizer_D.zero_grad()
         D_loss.backward()
         self.optimizer_D.step()
 
-        return D_loss, G_loss
+        return D_loss, G_loss, perc_loss, style_loss, cx_loss
 
     def calc_loss(self, discriminator, src_img, gt_img, ref_img, gen_img, src_mask):
         D_loss = self.discriminator_loss(discriminator, gt_img, gen_img)
         G_loss = self.generator_loss(discriminator, gt_img, gen_img, freeze=False)
-        perc_loss = self.perceptual_loss(gt_img, gen_img)
-        style_loss = self.style_loss(gen_img, src_img, src_mask)
-        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask)
+        perc_loss = self.perceptual_loss(gt_img, gen_img) * self.lambda_perc
+        style_loss = self.style_loss(gen_img, src_img, src_mask) * self.lambda_style
+        cx_loss = self.contextual_loss(gen_img, ref_img, src_mask) * self.lambda_cx
 
         G_loss = G_loss + perc_loss + style_loss + cx_loss
         return D_loss, G_loss

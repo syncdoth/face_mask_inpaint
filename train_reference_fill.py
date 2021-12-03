@@ -38,8 +38,13 @@ def get_args():
     parser.add_argument('--ref_img_path', type=str, default='img_align_celeba')
     parser.add_argument('--mask_path', type=str, default='binary_map')
     parser.add_argument('--identity_file_path', type=str, default='identity_CelebA.txt')
+    parser.add_argument('--use_best_reference', type=int, default=0)
 
     # encoder args
+    parser.add_argument('--encoder_type',
+                        type=str,
+                        default='pluralistic',
+                        choices=['pluralistic', 'drn'])
     parser.add_argument('--encoder_ngf', type=int, default=32, help='base filters')
     parser.add_argument('--encoder_img_f', type=int, default=128, help='final filters')
     parser.add_argument('--encoder_layers', type=int, default=5)
@@ -120,7 +125,9 @@ def main():
                                                         args.batch_size,
                                                         val_amount=0.1,
                                                         num_workers=os.cpu_count(),
-                                                        img_scale=args.img_scale)
+                                                        img_scale=args.img_scale,
+                                                        use_ssim=args.use_best_reference,
+                                                        device = device)
 
     train_net(generator,
               discriminator,
@@ -279,8 +286,9 @@ def train_net(generator,
 
                 gen_images = generator(src_images, ref_images, src_mask=true_masks)
 
-                loss_D, loss_G = gan_optimizer(discriminator, src_images, gt_images,
-                                               ref_images, gen_images, true_masks)
+                loss_D, loss_G, perc_loss, style_loss, cx_loss = gan_optimizer(
+                    discriminator, src_images, gt_images, ref_images, gen_images,
+                    true_masks)
 
                 pbar.update(src_images.shape[0])
                 global_step += 1
@@ -292,10 +300,14 @@ def train_net(generator,
                     'step': global_step,
                     'epoch': epoch,
                 })
-                pbar.set_postfix(**{
-                    'G loss (batch)': loss_G.item(),
-                    'D loss (batch)': loss_D.item(),
-                })
+                pbar.set_postfix(
+                    **{
+                        'G loss (batch)': loss_G.item(),
+                        'D loss (batch)': loss_D.item(),
+                        'perc': perc_loss.item(),
+                        'style': style_loss.item(),
+                        'context': cx_loss.item()
+                    })
 
                 # Evaluation round
                 division_step = (n_train // (10 * batch_size))

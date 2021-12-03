@@ -9,6 +9,9 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, random_split
+from tqdm import tqdm
+import pickle
+from modules.evaluations.ssim import SSIM
 
 
 def get_reference_dataloader(dir_src_img,
@@ -18,12 +21,16 @@ def get_reference_dataloader(dir_src_img,
                              batch_size,
                              val_amount=0.1,
                              num_workers=4,
-                             img_scale=1.0):
+                             img_scale=1.0,
+                             use_ssim=False,
+                             device=None):
     dataset = ReferenceDataset(dir_src_img,
                                dir_ref_img,
                                dir_mask,
                                identity_file,
-                               scale=img_scale)
+                               scale=img_scale,
+                               use_ssim=use_ssim,
+                               device=device)
     n_train = math.floor(len(dataset) * (1 - val_amount))
     n_val = math.ceil(len(dataset) * val_amount)
 
@@ -112,7 +119,7 @@ class BasicDataset(Dataset):
 
 class ReferenceDataset(BasicDataset):
 
-    def __init__(self, source_dir, reference_dir, masks_dir, identity_file, scale=1.0):
+    def __init__(self, source_dir, reference_dir, masks_dir, identity_file, scale=1.0, use_ssim = False,device=None):
         self.source_dir = Path(source_dir)
         self.masks_dir = Path(masks_dir)
         self.reference_dir = Path(reference_dir)
@@ -135,6 +142,10 @@ class ReferenceDataset(BasicDataset):
                 f'No input file found in {source_dir}, make sure you put your images there'
             )
         logging.info(f'Creating dataset with {len(self.ids)} examples')
+        if use_ssim:
+            logging.info(f'Creating best_reference_map')
+            self.ssim = SSIM()
+            self.best_reference_map = self.find_best_reference(device)
 
     def read_identity_file(self, identity_file):
         identity_map = {}
@@ -152,8 +163,45 @@ class ReferenceDataset(BasicDataset):
                 else:
                     identity_map[identity] = [img_id]
         return identity_map, img2identity
+    
+    def find_best_reference(self, device):
+        best_reference_map = {}
+        my_file = self.source_dir.parent / Path('best_reference_map.pkl')
+        if my_file.is_file():
+            with open(my_file, 'rb') as f:
+                best_reference_map = pickle.load(f)
+            return best_reference_map
+
+        with tqdm(total=len(self.ids), unit='img') as pbar:
+            for name in self.ids:
+                pbar.update(1)
+                gt_file = self.reference_dir / Path(name + '.jpg')
+                gt_img = self.load(gt_file)
+                gt_img = self.preprocess(gt_img, self.scale, is_mask=False)
+                gt_img_tensor = torch.as_tensor(gt_img.copy()).float().contiguous().unsqueeze(0).to(device)
+                max_score = -10
+                best_ref = None
+                for ref_image_name in self.identity_map[self.img2identity[name]]:
+                    if (ref_image_name != name):
+                        ref_file = self.reference_dir / Path(ref_image_name + '.jpg')
+                        ref_img = self.load(ref_file)
+                        ref_img = self.preprocess(ref_img, self.scale, is_mask=False)
+                        ref_img_tensor = torch.as_tensor(ref_img.copy()).float().contiguous().unsqueeze(0).to(device)
+                        score = self.ssim(gt_img_tensor,ref_img_tensor)
+                        if (score > max_score):
+                            max_score = score
+                            best_ref = ref_image_name
+                best_reference_map[name] = best_ref
+        with open(self.source_dir.parent / Path('best_reference_map.pkl'), 'wb') as f:
+            pickle.dump(best_reference_map, f)
+        return best_reference_map
 
     def sample_reference_image(self, img_name):
+        if (self.ssim):
+            print (img_name)
+            print (self.best_reference_map[img_name])
+            return self.best_reference_map[img_name]
+
         images = self.identity_map[self.img2identity[img_name]]
         assert len(images) > 1
         reference_image = random.choice(images)
