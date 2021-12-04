@@ -16,8 +16,8 @@ from modules.loss import dice_coeff, dice_loss, multiclass_dice_coeff
 from modules.mask_detector import MaskDetector
 
 
-DIR_IMG = Path('../CelebA/img_align_celeba_masked1')
-DIR_MASK = Path('../CelebA/binary_map')
+DIR_IMG = Path('../CelebAHQ/images_masked')
+DIR_MASK = Path('../CelebAHQ/binary_map')
 DIR_CHECKPOINT = Path('./checkpoints_mask_detector/')
 
 
@@ -74,10 +74,8 @@ def train_net(net,
     dataset = BasicDataset(DIR_IMG,DIR_MASK, img_scale)
 
     # 2. Split into train / validation partitions
-    # n_val = int(len(dataset) * val_percent)
-    # n_train = len(dataset) - n_val
-    n_val = 10000
-    n_train = 80000 
+    n_val = int(len(dataset) * val_percent)
+    n_train = len(dataset) - n_val
     train_set, val_set = random_split(dataset, [n_train, n_val])
 
     # 3. Create data loaders
@@ -125,11 +123,11 @@ def train_net(net,
                     f'but loaded images have {images.shape[1]} channels. Please check that ' \
                     'the images are loaded correctly.'
 
-                images = images.to(device=device, dtype=torch.float32) #(B,3,218,178)
-                true_masks = (true_masks>0).to(device=device, dtype=torch.long) #(B,218,178)
+                images = images.to(device=device, dtype=torch.float32) #(B,3,1024,1024)
+                true_masks = (true_masks>0).to(device=device, dtype=torch.long) #(B,1024,1024)
 
                 with torch.cuda.amp.autocast(enabled=amp):
-                    masks_pred = net(images) #(B,2,218,178)
+                    masks_pred = net(images) #(B,2,1024,1024)
                     loss = criterion(masks_pred, true_masks) \
                     + dice_loss(F.softmax(masks_pred, dim=1).float(), 
                                        F.one_hot(true_masks, net.n_classes).permute(0, 3, 1, 2).float(),
@@ -202,7 +200,7 @@ if __name__ == '__main__':
     args = get_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # device = 'cpu'
     logging.info(f'Using device {device}')
 

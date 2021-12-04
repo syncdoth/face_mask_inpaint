@@ -1,3 +1,5 @@
+import torch.nn.functional as F
+
 from modules.pluralistic_model.base_function import *
 from modules.pluralistic_model.external_function import SpectralNorm
 
@@ -5,9 +7,12 @@ from modules.pluralistic_model.external_function import SpectralNorm
 ##############################################################################################################
 # Network function
 ##############################################################################################################
-def define_e(input_nc=3,
+def define_e(encoder_type='src',
+             input_nc=3,
              ngf=64,
+             z_nc=512,
              img_f=512,
+             L=6,
              layers=5,
              norm='none',
              activation='ReLU',
@@ -16,14 +21,17 @@ def define_e(input_nc=3,
              init_type='orthogonal',
              gpu_ids=[]):
 
-    net = ResEncoder(input_nc, ngf, img_f, layers, norm, activation, use_spect, use_coord)
+    net = ResEncoder(input_nc, ngf, z_nc, img_f, L, layers, norm, activation, use_spect,
+                     use_coord, encoder_type)
 
     return init_net(net, init_type, activation, gpu_ids)
 
 
 def define_g(output_nc=3,
              ngf=64,
+             z_nc=512,
              img_f=512,
+             L=1,
              layers=5,
              norm='instance',
              activation='ReLU',
@@ -33,8 +41,8 @@ def define_g(output_nc=3,
              init_type='orthogonal',
              gpu_ids=[]):
 
-    net = ResGenerator(output_nc, ngf, img_f, layers, norm, activation, use_spect,
-                       use_coord, use_attn)
+    net = ResGenerator(output_nc, ngf, z_nc, img_f, L, layers, norm, activation,
+                       use_spect, use_coord, use_attn)
 
     return init_net(net, init_type, activation, gpu_ids)
 
@@ -79,15 +87,21 @@ class ResEncoder(nn.Module):
     def __init__(self,
                  input_nc=3,
                  ngf=64,
+                 z_nc=128,
                  img_f=1024,
+                 L=6,
                  layers=6,
                  norm='none',
                  activation='ReLU',
                  use_spect=True,
-                 use_coord=False):
+                 use_coord=False,
+                 encoder_type='src'):
         super(ResEncoder, self).__init__()
 
         self.layers = layers
+        self.z_nc = z_nc
+        self.L = L
+        self.ecnoder_type = encoder_type
 
         norm_layer = get_norm_layer(norm_type=norm)
         nonlinearity = get_nonlinearity_layer(activation_type=activation)
@@ -107,6 +121,19 @@ class ResEncoder(nn.Module):
                                  nonlinearity, 'down', use_spect, use_coord)
             setattr(self, 'encoder' + str(i), block)
 
+        # inference part
+        if encoder_type == 'src':
+            for i in range(self.L):
+                block = ResBlock(ngf * mult, ngf * mult, ngf * mult, norm_layer,
+                                 nonlinearity, 'none', use_spect, use_coord)
+                setattr(self, 'infer_prior' + str(i), block)
+
+            self.prior = ResBlock(ngf * mult, 2 * z_nc, ngf * mult, norm_layer,
+                                  nonlinearity, 'none', use_spect, use_coord)
+        elif encoder_type == 'ref':
+            self.posterior = ResBlock(ngf * mult, 2 * z_nc, ngf * mult, norm_layer,
+                                      nonlinearity, 'none', use_spect, use_coord)
+
     def forward(self, img):
         """
         :param img: image with mask regions I_m
@@ -114,11 +141,41 @@ class ResEncoder(nn.Module):
         """
         # encoder part
         out = self.block0(img)
+        # feature = [out]
         for i in range(self.layers - 1):
             model = getattr(self, 'encoder' + str(i))
             out = model(out)
+            # feature.append(out)
 
-        return out
+        if self.ecnoder_type == 'src':
+            distribution = self.prior_path(out)
+            return distribution, out
+        elif self.ecnoder_type == 'ref':
+            distribution = self.post_path(out)
+            return distribution, out
+
+    def prior_path(self, encoded):
+        """one path for baseline training or testing"""
+        # infer state
+        for i in range(self.L):
+            infer_prior = getattr(self, 'infer_prior' + str(i))
+            encoded = infer_prior(encoded)
+
+        # get distribution
+        o = self.prior(encoded)
+        q_mu, q_std = torch.split(o, self.z_nc, dim=1)
+        distribution = [q_mu, F.softplus(q_std)]
+
+        return distribution
+
+    def post_path(self, encoded):
+        """two paths for the training"""
+        # get distribution
+        o = self.posterior(encoded)
+        p_mu, p_std = torch.split(o, self.z_nc, dim=1)
+        distribution = [p_mu, F.softplus(p_std)]
+
+        return distribution
 
 
 class ResGenerator(nn.Module):
@@ -135,54 +192,117 @@ class ResGenerator(nn.Module):
     def __init__(self,
                  output_nc=3,
                  ngf=64,
+                 z_nc=128,
                  img_f=1024,
+                 L=1,
                  layers=6,
                  norm='batch',
                  activation='ReLU',
                  use_spect=True,
                  use_coord=False,
-                 use_attn=True):
+                 use_attn=False):
         super(ResGenerator, self).__init__()
 
         self.layers = layers
+        self.L = L
         self.use_attn = use_attn
 
         norm_layer = get_norm_layer(norm_type=norm)
         nonlinearity = get_nonlinearity_layer(activation_type=activation)
 
-        # decoder part
+        # latent z to feature
         mult = min(2**(layers - 1), img_f // ngf)
+        ch = int(ngf * mult)
+        self.generator = ResBlock(z_nc, ch, ch, None, nonlinearity, 'none', use_spect,
+                                  use_coord)
+
+        # transform
+        for i in range(self.L):
+            block = ResBlock(ch, ch, ch, None, nonlinearity, 'none', use_spect, use_coord)
+            setattr(self, 'generator' + str(i), block)
+
+        # decoder part
         for i in range(layers):
             mult_prev = mult
             mult = min(2**(layers - i - 1), img_f // ngf)
-            upconv = ResBlockDecoder(ngf * mult_prev, ngf * mult, ngf * mult, norm_layer,
-                                     nonlinearity, use_spect, use_coord)
+
+            prev_ch = int(ngf * mult_prev)
+            ch = int(ngf * mult)
+            upconv = ResBlockDecoder(prev_ch, ch, ch, norm_layer, nonlinearity, use_spect,
+                                     use_coord)
             # # actually not an upconv!
-            # upconv = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult_prev,
+            # upconv = ResBlock(prev_ch, ch, prev_ch,
             #                     norm_layer, nonlinearity, 'none', use_spect, use_coord)
             setattr(self, 'decoder' + str(i), upconv)
             # output part
             if i > layers - 2:
-                outconv = Output(ngf * mult, output_nc, 3, None, nonlinearity, use_spect,
+                outconv = Output(ch, output_nc, 3, None, nonlinearity, use_spect,
                                  use_coord)
                 setattr(self, 'out' + str(i), outconv)
+            # short+long term attention part
+            if i == 1 and use_attn:
+                attn = Auto_Attn(ch, None)
+                setattr(self, 'attn' + str(i), attn)
 
-    def forward(self, encoded):
+    def forward(self, encoded, z=None, f_e=None, mask=None):
         """
         ResNet Generator Network
         :param f_m: feature of valid regions for conditional VAG-GAN
         :return results: different scale generation outputs
         """
+        if z is not None:
+            f = self.generator(z)
+            for i in range(self.L):
+                generator = getattr(self, 'generator' + str(i))
+                f = generator(f)
+            out = encoded + f
+        else:
+            out = encoded
 
-        out = encoded
         for i in range(self.layers):
             model = getattr(self, 'decoder' + str(i))
             out = model(out)
+            if i == 1 and self.use_attn:
+                # auto attention
+                model = getattr(self, 'attn' + str(i))
+                out, attn = model(out, f_e, mask)
             if i > self.layers - 2:
                 model = getattr(self, 'out' + str(i))
                 output = model(out)
                 out = torch.cat([out, output], dim=1)
         return output
+
+    def get_z(self, src_distribution, ref_distribution, mask=None):
+        """Calculate encoder distribution for img_m, img_c"""
+        # get distribution
+        p_mu, p_sigma = ref_distribution
+        q_mu, q_sigma = src_distribution
+        # the post distribution from mask regions
+        p_distribution = torch.distributions.Normal(p_mu, p_sigma)
+        # the prior distribution from valid region
+        q_distribution = torch.distributions.Normal(q_mu, q_sigma)
+
+        z_p = p_distribution.rsample()
+        z_q = q_distribution.rsample()
+        z = torch.cat([z_p, z_q], dim=0)
+
+        # kl divergence
+        # sum_valid = (torch.mean(mask.view(mask.size(0), -1), dim=1) - 1e-5).view(
+        #     -1, 1, 1, 1)
+        # m_sigma = 1 / (1 + ((sum_valid - 0.8) * 8).exp_())
+        # # the assumption distribution for different mask regions
+        # m_distribution = torch.distributions.Normal(torch.zeros_like(p_mu),
+        #                                             m_sigma * torch.ones_like(p_sigma))
+        # # m_distribution = torch.distributions.Normal(torch.zeros_like(p_mu), torch.ones_like(p_sigma))
+        # p_distribution_fix = torch.distributions.Normal(p_mu.detach(), p_sigma.detach())
+
+        # kl_g = 0
+        # if self.opt.train_paths == "one":
+        #     kl_g += torch.distributions.kl_divergence(m_distribution, q_distribution)
+        # elif self.opt.train_paths == "two":
+        #     kl_g += torch.distributions.kl_divergence(p_distribution_fix, q_distribution)
+
+        return z_q
 
 
 class ResDiscriminator(nn.Module):
@@ -245,8 +365,7 @@ class ResDiscriminator(nn.Module):
             out = model(out)
         out = self.block1(out)
         out = self.conv(self.nonlinearity(out))  # [N, 1, H, W]
-        out = out.reshape(out.shape[0], 1, -1)
-        return out.mean(-1)  # [N, 1]
+        return out
 
 
 class PatchDiscriminator(nn.Module):

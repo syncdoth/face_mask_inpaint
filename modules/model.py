@@ -14,7 +14,12 @@ def scale_img(img, size):
 
 class ReferenceFill(nn.Module):
 
-    def __init__(self, mask_detector, encoder_params, decoder_params, use_att=True):
+    def __init__(self,
+                 mask_detector,
+                 encoder_params,
+                 decoder_params,
+                 use_att=True,
+                 out_size=(256, 256)):
         """
         mask_params:
             n_channels,
@@ -39,8 +44,8 @@ class ReferenceFill(nn.Module):
         """
         super().__init__()
         self.mask_detector = mask_detector
-        encoder_type = encoder_params.pop('type')
-        if encoder_type == 'drn':
+        self.encoder_type = encoder_params.pop('type')
+        if self.encoder_type == 'drn':
             self.src_encoder = drn_c_42(pretrained=True, out_map=True)
             self.src_encoder.fc = torch.nn.Conv2d(self.src_encoder.out_dim,
                                                   encoder_params['img_f'],
@@ -56,31 +61,50 @@ class ReferenceFill(nn.Module):
                                                   padding=0,
                                                   bias=True)
             decoder_params['layers'] = 6
-        elif encoder_type == 'pluralistic':
-            self.src_encoder = network.define_e(**encoder_params)
-            self.ref_encoder = network.define_e(**encoder_params)
+        elif self.encoder_type == 'pluralistic':
+            # NOTE: 4 differences.
+            # 1. no short+long attention in decoder
+            # 2. prior from source, post from reference
+            # 3. no kl divergence
+            # 4. no disc_rec
+            self.src_encoder = network.define_e(**encoder_params, encoder_type='src')
+            self.ref_encoder = network.define_e(**encoder_params, encoder_type='ref')
         else:
             raise NotImplementedError
         self.decoder = network.define_g(**decoder_params)
 
         self.use_att = use_att
         if use_att:
-            self.attention = ExampleGuidedAttention(encoder_params['img_f'])
+            self.attention = ExampleGuidedAttention(encoder_params['img_f'],
+                                                    out_channels=decoder_params['img_f'])
 
-    def forward(self, src_image, ref_image, src_mask=None):
+        self.pool = nn.AdaptiveAvgPool2d(out_size)
+
+    def forward(self, src_image, ref_image, src_mask=None, resize=True):
         """
         both have shape [N, 3, 218, 178]  (CelebA dataset images)
         """
         if src_mask is None:
             src_mask = self.mask_detector(src_image, mode='eval')
-        src_features = self.src_encoder(src_image)
-        ref_features = self.ref_encoder(ref_image)
+        if self.encoder_type == 'drn':
+            src_features = self.src_encoder(src_image)
+            ref_features = self.ref_encoder(ref_image)
+        elif self.encoder_type == 'pluralistic':
+            src_dist, src_features = self.src_encoder(src_image)
+            ref_dist, ref_features = self.ref_encoder(ref_image)
 
         if self.use_att:
             scaled_mask = scale_img(src_mask.unsqueeze(1), src_features.shape[-2:])
             enc_features = self.attention(scaled_mask, src_features, ref_features)
         else:
             enc_features = torch.cat([src_features, ref_features], dim=1)
-        dec_image = self.decoder(enc_features)
-        dec_image = scale_img(dec_image, src_image.shape[-2:])
+
+        if self.encoder_type == 'drn':
+            dec_image = self.decoder(enc_features)
+        elif self.encoder_type == 'pluralistic':
+            z = self.decoder.get_z(src_dist, ref_dist)
+            dec_image = self.decoder(enc_features, z=z)
+
+        if resize:
+            dec_image = self.pool(dec_image)
         return dec_image
