@@ -197,7 +197,6 @@ def evaluate(generator,
                                        ref=ref_images,
                                        src_mask=true_masks,
                                        return_latents=True)  #[N, 3, H, W]  [-1 ~ 1]
-        gen_images = (gen_images + 1) / 2  # [-1 ~ 1] -> [0 ~ 1]
 
         # now loss
         loss, _, _ = calc_loss(src_images,
@@ -209,6 +208,7 @@ def evaluate(generator,
                                mask=true_masks)
         metrics['val loss'] += loss.item()
 
+        gen_images = (gen_images + 1) / 2  # [-1 ~ 1] -> [0 ~ 1]
         # calculate metrics
         if 'fid' in options:
             fid_distance = calculate_fid(scale_img(raw_gt_img, (299, 299)),
@@ -315,7 +315,6 @@ def train_net(generator,
                                                src_mask=true_masks,
                                                return_latents=True,
                                                randomize_noise=args.randomize_noise)
-                gen_images = (gen_images + 1) / 2  # [-1 ~ 1] -> [0 ~ 1]
                 loss, loss_dict, id_logs = psp_loss(src_images,
                                                     gt_images,
                                                     gen_images,
@@ -356,6 +355,7 @@ def train_net(generator,
                         histograms['G_gradients/' + tag] = wandb.Histogram(
                             value.grad.data.cpu())
 
+                    gen_images = (gen_images + 1) / 2  # [-1 ~ 1] -> [0 ~ 1]
                     exp_log_params = {
                         'learning rate': optimizer.param_groups[0]['lr'],
                         'src_images': wandb.Image(src_images[0].cpu()),
