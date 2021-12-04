@@ -52,8 +52,8 @@ def get_args():
                         type=int,
                         help='Output size of generator')
     parser.add_argument('--train_decoder',
-                        default=False,
-                        type=bool,
+                        default=0,
+                        type=int,
                         help='Whether to train the decoder model')
     parser.add_argument(
         '--start_from_latent_avg',
@@ -110,6 +110,7 @@ def get_args():
     args.mask_path = os.path.join(args.data_root, args.mask_path)
     args.identity_file_path = os.path.join(args.data_root, args.identity_file_path)
 
+    args.train_decoder = bool(args.train_decoder)
     return args
 
 
@@ -280,10 +281,13 @@ def train_net(generator,
     dir_checkpoint = dir_checkpoint / Path(run_name)
     dir_checkpoint.mkdir(parents=True, exist_ok=True)
 
+    params = list(generator.encoder.parameters())
+    if args.train_decoder:
+        params += list(generator.decoder.parameters())
     if args.optimizer == 'adam':
-        optimizer = optim.Adam(generator.encoder.parameters(), lr=learning_rate)
+        optimizer = optim.Adam(params, lr=learning_rate)
     elif args.optimizer == 'ranger':
-        optimizer = Ranger(generator.encoder.parameters(), lr=learning_rate)
+        optimizer = Ranger(params, lr=learning_rate)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                      'max',
                                                      patience=2,
@@ -345,7 +349,7 @@ def train_net(generator,
                 if global_step % division_step == 0:
                     histograms = {}
                     for tag, value in generator.named_parameters():
-                        if not value.requires_grad:
+                        if not value.requires_grad or tag.startswith('decoder.style'):
                             continue
                         tag = tag.replace('/', '.')
                         histograms['G_weights/' + tag] = wandb.Histogram(value.data.cpu())
