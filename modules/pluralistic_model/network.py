@@ -155,13 +155,11 @@ class ResGenerator(nn.Module):
         for i in range(layers):
             mult_prev = mult
             mult = min(2**(layers - i - 1), img_f // ngf)
-            if i % 2 == 0:
-                upconv = ResBlockDecoder(ngf * mult_prev, ngf * mult, ngf * mult,
-                                         norm_layer, nonlinearity, use_spect, use_coord)
-            else:
-                # actually not an upconv!
-                upconv = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult_prev,
-                                  norm_layer, nonlinearity, 'none', use_spect, use_coord)
+            upconv = ResBlockDecoder(ngf * mult_prev, ngf * mult, ngf * mult, norm_layer,
+                                     nonlinearity, use_spect, use_coord)
+            # # actually not an upconv!
+            # upconv = ResBlock(ngf * mult_prev, ngf * mult, ngf * mult_prev,
+            #                     norm_layer, nonlinearity, 'none', use_spect, use_coord)
             setattr(self, 'decoder' + str(i), upconv)
             # output part
             if i > layers - 2:
