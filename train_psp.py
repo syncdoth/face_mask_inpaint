@@ -92,6 +92,7 @@ def get_args():
                         type=float,
                         help='L2 loss multiplier factor for inner image region')
     parser.add_argument('--style_lambda', default=250, type=float)
+    parser.add_argument('--cx_lambda', default=1, type=float)
 
     # pretrained weight paths
     parser.add_argument('--stylegan_weights',

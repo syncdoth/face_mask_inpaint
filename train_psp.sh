@@ -1,15 +1,18 @@
 # frequent hyperparameters
-run_name=RefpSp_adam_from_inversion_style_ref_loss
+run_name=RefpSp_from_inversion_style_cx_decoder_l22
 optimizer=adam  # or [adam, ranger]
 lr=1e-4
 bs=2
 
+#--w_norm_lambda=0.005 \  use this when freezing the stylegan decoder
 
 python train_psp.py \
+--train_decoder 1 \
+--eval_options ssim ms_ssim \
 --batch_size $bs --learning_rate $lr \
---lpips_lambda=0.8 --l2_lambda=1 --id_lambda=0.1 --style_lambda=1000 \
---lpips_lambda_ref=0.8 --l2_lambda_ref=0.8 \
---w_norm_lambda=0.005 \
+--lpips_lambda=0.8 --l2_lambda=2 --id_lambda=0.1 --style_lambda=1000 \
+--cx_lambda=1 \
+--w_norm_lambda=0 \
 --run_name $run_name \
 --optimizer $optimizer \
 --img_scale 0.25 --start_from_latent_avg --randomize_noise \

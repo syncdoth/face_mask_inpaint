@@ -19,7 +19,7 @@ class pSpLoss(nn.Module):
         # reference loss
         self.lpips_lambda_ref = args.lpips_lambda_ref
         self.l2_lambda_ref = args.l2_lambda_ref
-        # self.cx_lambda = args.cx_lambda
+        self.cx_lambda = args.cx_lambda
 
         # W constraint loss
         self.w_norm_lambda = args.w_norm_lambda
@@ -39,7 +39,6 @@ class pSpLoss(nn.Module):
         return self.vgg_loss(y_hat * src_mask, src_img, lossType='style')
 
     def contextual_loss(self, y_hat, ref_img, src_mask):
-        src_mask = src_mask.unsqueeze(1)  # No inverse
         return self.vgg_loss(y_hat * src_mask, ref_img * src_mask, lossType='contextual')
 
     def __call__(self, x, y, y_hat, latent, latent_avg=None, ref=None, mask=None):
@@ -77,17 +76,18 @@ class pSpLoss(nn.Module):
             loss_dict['loss_style'] = float(style_loss)
 
         # loss wrt reference image
-        if self.lpips_lambda_ref > 0 and ref is not None:
-            loss_lpips_ref = self.lpips_loss(y_hat * mask, ref * mask)
-            loss_dict['loss_lpips_ref'] = float(loss_lpips_ref)
-            loss += loss_lpips_ref * self.lpips_lambda_ref
-        if self.l2_lambda_ref > 0 and ref is not None:
-            loss_l2_ref = F.mse_loss(y_hat * mask, ref * mask)
-            loss_dict['loss_l2_ref'] = float(loss_l2_ref)
-            loss += loss_l2_ref * self.l2_lambda_ref
-        # if self.cx_lambda > 0:
-        #     cx_loss = self.contextual_loss(y_hat, ref, mask) * self.cx_lambda
-        #     loss_dict['loss_context'] = float(cx_loss)
+        if ref is not None:
+            if self.lpips_lambda_ref > 0:
+                loss_lpips_ref = self.lpips_loss(y_hat * mask, ref * mask)
+                loss_dict['loss_lpips_ref'] = float(loss_lpips_ref)
+                loss += loss_lpips_ref * self.lpips_lambda_ref
+            if self.l2_lambda_ref > 0:
+                loss_l2_ref = F.mse_loss(y_hat * mask, ref * mask)
+                loss_dict['loss_l2_ref'] = float(loss_l2_ref)
+                loss += loss_l2_ref * self.l2_lambda_ref
+            if self.cx_lambda > 0:
+                cx_loss = self.contextual_loss(y_hat, ref, mask) * self.cx_lambda
+                loss_dict['loss_context'] = float(cx_loss)
 
         # W constraint loss
         if self.w_norm_lambda > 0 and latent_avg is not None:
