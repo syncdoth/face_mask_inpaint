@@ -91,7 +91,6 @@ def get_args():
                         default=0,
                         type=float,
                         help='L2 loss multiplier factor for inner image region')
-    parser.add_argument('--moco_lambda', default=0, type=float, help='moco_lambda')
     parser.add_argument('--style_lambda', default=250, type=float)
 
     # pretrained weight paths
