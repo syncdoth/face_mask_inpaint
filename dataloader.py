@@ -21,6 +21,7 @@ def get_reference_dataloader(dir_src_img,
                              dir_mask,
                              identity_file,
                              batch_size,
+                             apply_transform=False,
                              val_amount=0.1,
                              num_workers=4,
                              img_scale=1.0,
@@ -30,6 +31,7 @@ def get_reference_dataloader(dir_src_img,
                                dir_ref_img,
                                dir_mask,
                                identity_file,
+                               apply_transform=apply_transform,
                                scale=img_scale,
                                use_ssim=use_ssim,
                                device=device)
@@ -127,6 +129,7 @@ class ReferenceDataset(BasicDataset):
                  reference_dir,
                  masks_dir,
                  identity_file,
+                 apply_transform=True,
                  scale=1.0,
                  use_ssim=False,
                  device=None):
@@ -164,7 +167,9 @@ class ReferenceDataset(BasicDataset):
                 self.ssim = SSIM(data_range=1, size_average=True, channel=3)
                 self.best_reference_map = self.find_best_reference(device)
 
-        self.transform = transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        self.apply_transform = apply_transform
+        if apply_transform:
+            self.transform = transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 
     def read_identity_file(self, identity_file):
         identity_map = {}
@@ -238,10 +243,15 @@ class ReferenceDataset(BasicDataset):
         assert src_img.size == mask.size, \
             'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
-        src_img = self.transform(self.preprocess(src_img, self.scale, is_mask=False))
+        src_img = self.preprocess(src_img, self.scale, is_mask=False)
         raw_gt_img = self.preprocess(gt_img, self.scale, is_mask=False)
-        gt_img = self.transform(raw_gt_img)
-        ref_img = self.transform(self.preprocess(ref_img, self.scale, is_mask=False))
+        ref_img = self.preprocess(ref_img, self.scale, is_mask=False)
+        if self.apply_transform:
+            src_img = self.transform(src_img)
+            ref_img = self.transform(ref_img)
+            gt_img = self.transform(raw_gt_img)
+        else:
+            gt_img = raw_gt_img
         mask = self.preprocess(mask, self.scale, is_mask=True)
 
         return {

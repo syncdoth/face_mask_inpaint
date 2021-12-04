@@ -14,7 +14,7 @@ from modules.mask_detector import MaskDetector
 from modules.model import ReferenceFill, scale_img
 from modules.pluralistic_model import base_function, network
 from modules.evaluations.fid import calculate_fid
-from modules.evaluations.ssim import SSIM
+from pytorch_msssim import SSIM, MS_SSIM
 
 
 def get_args():
@@ -39,6 +39,7 @@ def get_args():
     parser.add_argument('--mask_path', type=str, default='binary_map')
     parser.add_argument('--identity_file_path', type=str, default='identity_CelebA.txt')
     parser.add_argument('--use_best_reference', type=int, default=0)
+    parser.add_argument('--pt_ckpt_path', type=str, default='')
 
     # encoder args
     parser.add_argument('--encoder_type',
@@ -46,6 +47,7 @@ def get_args():
                         default='pluralistic',
                         choices=['pluralistic', 'drn'])
     parser.add_argument('--encoder_ngf', type=int, default=32, help='base filters')
+    parser.add_argument('--encoder_z_nc', type=int, default=128, help='z_nc')
     parser.add_argument('--encoder_img_f', type=int, default=128, help='final filters')
     parser.add_argument('--encoder_layers', type=int, default=5)
     parser.add_argument('--encoder_norm', type=str, default='none')
@@ -54,6 +56,9 @@ def get_args():
 
     # decoder args
     parser.add_argument('--decoder_ngf', type=int, default=32, help='base filters')
+    parser.add_argument('--decoder_z_nc', type=int, default=128, help='z_nc')
+    parser.add_argument('--decoder_img_f', type=int, default=128, help='final filters')
+    parser.add_argument('--decoder_L', type=int, default=0, help='z layers')
     parser.add_argument('--decoder_layers', type=int, default=5)
     parser.add_argument('--decoder_norm', type=str, default='instance')
     parser.add_argument('--decoder_activation', type=str, default='LeakyReLU')
@@ -74,6 +79,9 @@ def get_args():
     args.mask_path = os.path.join(args.data_root, args.mask_path)
     args.identity_file_path = os.path.join(args.data_root, args.identity_file_path)
 
+    if args.encoder_type != 'pluralistic':
+        args.pt_ckpt_path = ''
+
     return args
 
 
@@ -88,12 +96,48 @@ def process_params(args):
         for k, v in args._get_kwargs()
         if k.startswith('decoder')
     }
-    decoder_params['img_f'] = encoder_params['img_f'] * 2
+    # decoder_params['img_f'] = encoder_params['img_f'] * 2
     disc_params = {
         k.replace('disc_', ''): v for k, v in args._get_kwargs() if k.startswith('disc')
     }
     disc_params['img_f'] = decoder_params['img_f']
     return encoder_params, decoder_params, disc_params
+
+
+def load_networks(generator, discriminator, path):
+    """Load all the networks from the disk"""
+    if not path:
+        return
+
+    for name in ['G', 'E', 'D']:
+        ckpt_path = os.path.join(path, f'latest_net_{name}.pth')
+        if not os.path.isfile(ckpt_path):
+            continue
+
+        pretrained_dict = {
+            k.replace('module.', '', 1): v for k, v in torch.load(ckpt_path).items()
+        }
+
+        if name == 'G':
+            matches = {}
+            for k, v in generator.decoder.state_dict().items():
+                if v.shape == pretrained_dict[k].shape:
+                    matches[k] = v
+            generator.decoder.load_state_dict(matches, strict=False)
+        elif name == 'E':
+            src_matches = {}
+            for k, v in generator.src_encoder.state_dict().items():
+                if v.shape == pretrained_dict[k].shape:
+                    src_matches[k] = v
+            generator.src_encoder.load_state_dict(src_matches, strict=False)
+            ref_matches = {}
+            for k, v in generator.ref_encoder.state_dict().items():
+                if v.shape == pretrained_dict[k].shape:
+                    ref_matches[k] = v
+            generator.ref_encoder.load_state_dict(ref_matches, strict=False)
+        elif name == 'D':
+            # discriminator did not change. so strict loading
+            discriminator.load_state_dict(pretrained_dict, strict=True)
 
 
 def main():
@@ -118,11 +162,14 @@ def main():
                               use_att=args.use_att).to(device)
     discriminator = network.define_d(**disc_params).to(device)
 
+    load_networks(generator, discriminator, args.pt_ckpt_path)
+
     train_loader, val_loader = get_reference_dataloader(args.src_img_path,
                                                         args.ref_img_path,
                                                         args.mask_path,
                                                         args.identity_file_path,
                                                         args.batch_size,
+                                                        apply_transform=False,
                                                         val_amount=0.1,
                                                         num_workers=os.cpu_count(),
                                                         img_scale=args.img_scale,
@@ -157,7 +204,9 @@ def evaluate(generator,
 
     metrics = {'D validation loss': 0, 'G validation loss': 0}
     if 'ssim' in options:
-        ssim_loss = SSIM()  #SSIM module
+        ssim_loss = SSIM(data_range=1, size_average=True, channel=3)
+    if 'ms_ssim' in options:
+        ms_ssim_loss = MS_SSIM(data_range=1, size_average=True, channel=3)
 
     # iterate over the validation set
     for batch in tqdm(val_loader,
@@ -177,6 +226,13 @@ def evaluate(generator,
 
         gen_images = generator(src_images, ref_images, src_mask=true_masks)  #[N, 3, H, W]
 
+        # now loss
+        loss_D, loss_G = calc_loss(discriminator, src_images, gt_images, ref_images,
+                                   gen_images, true_masks)
+        metrics['D validation loss'] += loss_D.item()
+        metrics['G validation loss'] += loss_G.item()
+
+        gen_images = (gen_images + 1) / 2
         # calculate metrics
         if 'fid' in options:
             fid_distance = calculate_fid(scale_img(gt_images, (299, 299)),
@@ -194,11 +250,12 @@ def evaluate(generator,
             else:
                 metrics['ssim'] = ssim
 
-        # now loss
-        loss_D, loss_G = calc_loss(discriminator, src_images, gt_images, ref_images,
-                                   gen_images, true_masks)
-        metrics['D validation loss'] += loss_D.item()
-        metrics['G validation loss'] += loss_G.item()
+        if 'ms_ssim' in options:
+            ms_ssim = ms_ssim_loss(gt_images, gen_images)
+            if 'ms_ssim' in metrics:
+                metrics['ms_ssim'] += ms_ssim
+            else:
+                metrics['ms_ssim'] = ms_ssim
 
     generator.train()
     discriminator.train()
@@ -315,7 +372,7 @@ def train_net(generator,
                 if global_step % division_step == 0:
                     histograms = {}
                     for tag, value in generator.named_parameters():
-                        if not value.requires_grad:
+                        if value.grad is None:
                             continue
                         tag = tag.replace('/', '.')
                         histograms['G_weights/' + tag] = wandb.Histogram(value.data.cpu())
