@@ -83,11 +83,11 @@ def get_args():
                         default=0,
                         type=float,
                         help='W-norm loss multiplier factor')
-    parser.add_argument('--lpips_lambda_crop',
+    parser.add_argument('--lpips_lambda_ref',
                         default=0,
                         type=float,
                         help='LPIPS loss multiplier factor for inner image region')
-    parser.add_argument('--l2_lambda_crop',
+    parser.add_argument('--l2_lambda_ref',
                         default=0,
                         type=float,
                         help='L2 loss multiplier factor for inner image region')
