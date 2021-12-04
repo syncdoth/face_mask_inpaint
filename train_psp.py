@@ -138,6 +138,7 @@ def main():
                                                         args.mask_path,
                                                         args.identity_file_path,
                                                         args.batch_size,
+                                                        apply_transform=True,
                                                         val_amount=0.1,
                                                         num_workers=os.cpu_count(),
                                                         img_scale=args.img_scale,
