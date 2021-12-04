@@ -60,7 +60,6 @@ class ReferenceFill(nn.Module):
                                                   stride=1,
                                                   padding=0,
                                                   bias=True)
-            decoder_params['layers'] = 6
         elif self.encoder_type == 'pluralistic':
             # NOTE: 4 differences.
             # 1. no short+long attention in decoder

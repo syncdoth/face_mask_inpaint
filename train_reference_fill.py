@@ -232,7 +232,6 @@ def evaluate(generator,
         metrics['D validation loss'] += loss_D.item()
         metrics['G validation loss'] += loss_G.item()
 
-        gen_images = (gen_images + 1) / 2
         # calculate metrics
         if 'fid' in options:
             fid_distance = calculate_fid(scale_img(gt_images, (299, 299)),
