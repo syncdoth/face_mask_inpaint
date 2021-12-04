@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms
 from tqdm import tqdm
 
-from modules.evaluations.ssim import SSIM
+from pytorch_msssim import SSIM
 
 
 def get_reference_dataloader(dir_src_img,
@@ -161,7 +161,7 @@ class ReferenceDataset(BasicDataset):
                     self.best_reference_map = pickle.load(f)
             else:
                 logging.info(f'Creating best_reference_map')
-                self.ssim = SSIM()
+                self.ssim = SSIM(data_range=1, size_average=True, channel=3)
                 self.best_reference_map = self.find_best_reference(device)
 
         self.transform = transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])

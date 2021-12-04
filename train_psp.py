@@ -13,7 +13,7 @@ from modules.mask_detector import MaskDetector
 from modules.model import scale_img
 from modules.pluralistic_model import base_function
 from modules.evaluations.fid import calculate_fid
-from modules.evaluations.ssim import SSIM
+from pytorch_msssim import SSIM, MS_SSIM
 
 # psp
 from modules.psp.psp import pSp
@@ -169,7 +169,9 @@ def evaluate(generator,
 
     metrics = {'val loss': 0}
     if 'ssim' in options:
-        ssim_loss = SSIM()  #SSIM module
+        ssim_func = SSIM(data_range=1, size_average=True, channel=3)
+    if 'ms_ssim' in options:
+        ms_ssim_func = MS_SSIM(data_range=1, size_average=True, channel=3)
 
     # iterate over the validation set
     for batch in tqdm(val_loader,
@@ -182,19 +184,19 @@ def evaluate(generator,
         raw_gt_img = batch['raw_gt_img']
 
         src_images = src_images.to(device)  #[N, 3, H, W]
-        gt_images = gt_images.to(device)  #[N, 3, H, W]
-        raw_gt_img = raw_gt_img.to(device)
+        gt_images = gt_images.to(device)  # normalized to mean=0.5, std=0.5
+        raw_gt_img = raw_gt_img.to(device)  # normalized to [0 ~ 1]
         if use_ref:
             ref_images = batch['ref_img'].to(device)  # [N, 3, H, W]
             true_masks = (batch['mask'] > 0).float().to(device)  # [N, H, W]
-            ref_images = ref_images
             # src_images = (1 - true_masks).unsqueeze(1) * src_images  # corrupt images
         else:
             ref_images = true_masks = None
         gen_images, latent = generator(src_images,
                                        ref=ref_images,
                                        src_mask=true_masks,
-                                       return_latents=True)  #[N, 3, H, W]
+                                       return_latents=True)  #[N, 3, H, W]  [-1 ~ 1]
+        gen_images = (gen_images + 1) / 2  # [-1 ~ 1] -> [0 ~ 1]
 
         # now loss
         loss, _, _ = calc_loss(src_images,
@@ -206,7 +208,6 @@ def evaluate(generator,
                                mask=true_masks)
         metrics['val loss'] += loss.item()
 
-        gen_images = (gen_images + 1) / 2
         # calculate metrics
         if 'fid' in options:
             fid_distance = calculate_fid(scale_img(raw_gt_img, (299, 299)),
@@ -218,11 +219,18 @@ def evaluate(generator,
                 metrics['fid'] = fid_distance
 
         if 'ssim' in options:
-            ssim = ssim_loss(raw_gt_img, gen_images)
+            ssim = ssim_func(gen_images, raw_gt_img)
             if 'ssim' in metrics:
                 metrics['ssim'] += ssim
             else:
                 metrics['ssim'] = ssim
+
+        if 'ms_ssim' in options:
+            ms_ssim = ms_ssim_func(gen_images, raw_gt_img)
+            if 'ms_ssim' in metrics:
+                metrics['ms_ssim'] += ms_ssim
+            else:
+                metrics['ms_ssim'] = ms_ssim
 
     generator.train()
 
@@ -303,6 +311,7 @@ def train_net(generator,
                                                src_mask=true_masks,
                                                return_latents=True,
                                                randomize_noise=args.randomize_noise)
+                gen_images = (gen_images + 1) / 2  # [-1 ~ 1] -> [0 ~ 1]
                 loss, loss_dict, id_logs = psp_loss(src_images,
                                                     gt_images,
                                                     gen_images,
