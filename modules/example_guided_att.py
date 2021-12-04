@@ -4,9 +4,13 @@ from torch import nn
 
 class ExampleGuidedAttention(nn.Module):
 
-    def __init__(self, in_channels):
+    def __init__(self, in_channels, out_channels=None):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, in_channels // 4, 1, bias=False)
+
+        self.out_channels = out_channels
+        if out_channels is not None:
+            self.out_conv = nn.Conv2d(in_channels * 2, out_channels, 1)
 
     def apply_attention_map(self, att_map, features):
         N, C, H, W = features.shape
@@ -30,4 +34,8 @@ class ExampleGuidedAttention(nn.Module):
         ex_guide_flow = (1 - src_mask) * ref_att + src_mask * ref_feature
 
         out = torch.cat([ex_guide_flow, src_att], dim=1)  # [N, C*2, H, W]
+
+        if self.out_channels is not None:
+            out = self.out_conv(out)
+
         return out

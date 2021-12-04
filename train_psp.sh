@@ -21,3 +21,4 @@ python train_psp.py \
 --identity_file_path CelebA-HQ-identity.txt \
 --pt_ckpt_path pretrained_models/psp_ffhq_encode.pt \
 --use_ref  # uncomment this line and add '\' to the line above to use reference images
+# --use_attention  # uncomment this line and add '\' to the line above

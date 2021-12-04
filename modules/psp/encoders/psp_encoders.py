@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn import Linear, Conv2d, BatchNorm2d, PReLU, Sequential, Module
+from modules.example_guided_att import ExampleGuidedAttention
 
 from modules.psp.encoders.helpers import get_blocks, Flatten, bottleneck_IR, bottleneck_IR_SE
 from modules.psp.stylegan2.model import EqualLinear
@@ -72,6 +73,11 @@ class GradualStyleEncoder(Module):
         self.latlayer1 = nn.Conv2d(256, 512, kernel_size=1, stride=1, padding=0)
         self.latlayer2 = nn.Conv2d(128, 512, kernel_size=1, stride=1, padding=0)
 
+        self.use_attention = opts.use_attention
+        if opts.use_attention:
+            self.attention1 = ExampleGuidedAttention(512, out_channels=512)
+            self.attention2 = ExampleGuidedAttention(256, out_channels=256)
+
     def _upsample_add(self, x, y):
         '''Upsample and add two feature maps.
         Args:
@@ -99,9 +105,9 @@ class GradualStyleEncoder(Module):
         for i, l in enumerate(modulelist):
             x = l(x)
             if i == 6:
-                c1 = x  # [N, 512, 64, 64]
+                c1 = x  # [N, 128, 64, 64]
             elif i == 20:
-                c2 = x  # [N, 512, 32, 32]
+                c2 = x  # [N, 256, 32, 32]
             elif i == 23:
                 c3 = x  # [N, 512, 16, 16]
         # for reference
@@ -112,17 +118,23 @@ class GradualStyleEncoder(Module):
             for i, l in enumerate(modulelist):
                 ref = l(ref)
                 if i == 6:
-                    r1 = ref  # [N, 512, 64, 64]
+                    r1 = ref  # [N, 128, 64, 64]
                 elif i == 20:
-                    r2 = ref  # [N, 512, 32, 32]
+                    r2 = ref  # [N, 256, 32, 32]
                 elif i == 23:
                     r3 = ref  # [N, 512, 16, 16]
 
             mask_3 = scale_img(mask, r3.shape[-2:])
-            c3 = mask_3 * r3 + (1 - mask_3) * c3
             mask_2 = scale_img(mask, r2.shape[-2:])
-            c2 = mask_2 * r2 + (1 - mask_2) * c2
             mask_1 = scale_img(mask, r1.shape[-2:])
+
+            if self.use_attention:
+                c3 = self.attention1(mask_3, c3, r3)
+                c2 = self.attention2(mask_2, c2, r2)
+            else:
+                c3 = mask_3 * r3 + (1 - mask_3) * c3
+                c2 = mask_2 * r2 + (1 - mask_2) * c2
+            # TODO
             c1 = mask_1 * r1 + (1 - mask_1) * c1
 
         for j in range(self.coarse_ind):

@@ -34,6 +34,7 @@ def get_args():
     parser.add_argument('--img_scale', type=float, default=1.)
     parser.add_argument('--optimizer', type=str, default='adam')
     parser.add_argument('--use_ref', action='store_true', help='use reference image')
+    parser.add_argument('--use_attention', action='store_true', help='use attention')
 
     # path args
     parser.add_argument('--run_name', type=str, default='', help='exp name')
