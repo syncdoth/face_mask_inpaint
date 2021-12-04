@@ -60,7 +60,7 @@ class BasicDataset(Dataset):
             for file in listdir(images_dir)
             if not file.startswith('.')
         ]
-        self.ids = random.sample(self.ids, 90000)
+        # self.ids = random.sample(self.ids, 90000)
         if not self.ids:
             raise RuntimeError(
                 f'No input file found in {images_dir}, make sure you put your images there'
@@ -115,8 +115,8 @@ class BasicDataset(Dataset):
         mask = self.preprocess(mask, self.scale, is_mask=True)
 
         return {
-            'image': torch.as_tensor(img.copy()).float().contiguous(),
-            'mask': torch.as_tensor(mask.copy()).long().contiguous()
+            'image': img,
+            'mask': mask
         }
 
 

@@ -22,9 +22,9 @@ class MaskDetector(nn.Module):
         if mode is not train, return the threshold value.
         """
         output = self.model(image)
-        probs = torch.sigmoid(output)
-
+        
         if mode == 'train':
-            return probs
+            return output  
 
+        probs = torch.softmax(output,dim=1)
         return probs > self.threshold
