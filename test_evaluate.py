@@ -15,7 +15,7 @@ from modules.model import scale_img
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--eval_options', nargs="+", default={'ssim', 'msssim', 'fid'})
+    parser.add_argument('--eval_options', nargs="+", default={'ssim', 'ms_ssim', 'fid'})
     parser.add_argument('--batch_size', type=int, default=8)
 
     # path args
