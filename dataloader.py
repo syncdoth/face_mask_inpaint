@@ -116,10 +116,7 @@ class BasicDataset(Dataset):
         img = self.preprocess(img, self.scale, is_mask=False)
         mask = self.preprocess(mask, self.scale, is_mask=True)
 
-        return {
-            'image': img,
-            'mask': mask
-        }
+        return {'image': img, 'mask': mask}
 
 
 class ReferenceDataset(BasicDataset):
@@ -132,7 +129,8 @@ class ReferenceDataset(BasicDataset):
                  apply_transform=True,
                  scale=1.0,
                  use_ssim=False,
-                 device=None):
+                 device=None,
+                 return_id=False):
         self.source_dir = Path(source_dir)
         self.masks_dir = Path(masks_dir)
         self.reference_dir = Path(reference_dir)
@@ -170,6 +168,8 @@ class ReferenceDataset(BasicDataset):
         self.apply_transform = apply_transform
         if apply_transform:
             self.transform = transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+
+        self.return_id = return_id
 
     def read_identity_file(self, identity_file):
         identity_map = {}
@@ -254,10 +254,13 @@ class ReferenceDataset(BasicDataset):
             gt_img = raw_gt_img
         mask = self.preprocess(mask, self.scale, is_mask=True)
 
-        return {
+        items = {
             'src_img': src_img,
             'gt_img': gt_img,
             'raw_gt_img': raw_gt_img,
             'ref_img': ref_img,
             'mask': mask
         }
+        if self.return_id:
+            items['id'] = torch.LongTensor([int(self.ids[idx])])
+        return items

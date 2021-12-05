@@ -272,7 +272,7 @@ class ResGenerator(nn.Module):
                 out = torch.cat([out, output], dim=1)
         return output
 
-    def get_z(self, src_distribution, ref_distribution, mask=None):
+    def get_z(self, src_distribution, ref_distribution, return_zq=False, mask=None):
         """Calculate encoder distribution for img_m, img_c"""
         # get distribution
         p_mu, p_sigma = ref_distribution
@@ -284,7 +284,7 @@ class ResGenerator(nn.Module):
 
         z_p = p_distribution.rsample()
         z_q = q_distribution.rsample()
-        z = torch.cat([z_p, z_q], dim=0)
+        z = torch.cat([z_q, z_p], dim=1)  # at channel dimension
 
         # kl divergence
         # sum_valid = (torch.mean(mask.view(mask.size(0), -1), dim=1) - 1e-5).view(
@@ -302,7 +302,9 @@ class ResGenerator(nn.Module):
         # elif self.opt.train_paths == "two":
         #     kl_g += torch.distributions.kl_divergence(p_distribution_fix, q_distribution)
 
-        return z_q
+        if return_zq:
+            return z_q
+        return z
 
 
 class ResDiscriminator(nn.Module):
