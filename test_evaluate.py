@@ -98,7 +98,7 @@ def main():
 
         pbar.update(len(batch_ids))
 
-    df = pd.DataFrame({k: v / len(test_ids) for k, v in eval_results.items()})
+    df = pd.DataFrame({k: [v / len(test_ids)] for k, v in eval_results.items()})
     print(df)
     df.to_csv(os.path.join(args.test_folder, 'metrics.csv'), index=False)
 
