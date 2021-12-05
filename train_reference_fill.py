@@ -100,7 +100,7 @@ def process_params(args):
     disc_params = {
         k.replace('disc_', ''): v for k, v in args._get_kwargs() if k.startswith('disc')
     }
-    disc_params['img_f'] = decoder_params['img_f']
+    disc_params['img_f'] = encoder_params['img_f']
     return encoder_params, decoder_params, disc_params
 
 
@@ -171,7 +171,7 @@ def main():
                                                         args.batch_size,
                                                         apply_transform=False,
                                                         val_amount=0.1,
-                                                        num_workers=os.cpu_count(),
+                                                        num_workers=4,
                                                         img_scale=args.img_scale,
                                                         use_ssim=args.use_best_reference)
 
