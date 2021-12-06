@@ -34,6 +34,7 @@ def get_args():
                         default='pretrained_models/psp_ffhq_encode.pt',
                         type=str,
                         help='Path to pretrained pSp model checkpoint')
+    parser.add_argument('--save_src_mask', type=int, default=0)
 
     # pSp args: DO NOT MODIFY
     parser.add_argument('--use_ref', action='store_true', help='use reference image')
@@ -192,7 +193,7 @@ def main():
 
         for i, img in enumerate(gen_images):
             img.save(f'test_results/{run_name}/gen_{ids[i]}.jpg')
-            if src_mask:
+            if src_mask and args.save_src_mask:
                 src_mask[i].save(f'test_results/{run_name}/mask_{ids[i]}.jpg')
 
     # eval

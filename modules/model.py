@@ -105,5 +105,8 @@ class ReferenceFill(nn.Module):
             dec_image = self.decoder(enc_features, z=z)
 
         if resize:
-            dec_image = self.pool(dec_image)
+            if no_prior:
+                dec_image = scale_img(dec_image, (218, 178))
+            else:
+                dec_image = self.pool(dec_image)
         return dec_image

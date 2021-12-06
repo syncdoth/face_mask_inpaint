@@ -32,6 +32,7 @@ def get_args():
                         type=str,
                         help='Path to pretrained pSp model checkpoint')
     parser.add_argument('--img_scale', type=float, default=1.)
+    parser.add_argument('--save_src_mask', type=int, default=0)
 
     # encoder args
     parser.add_argument('--encoder_type',
@@ -102,7 +103,6 @@ def infer_batch(generator, mask_detector, batch_images, device, old_model=False)
     if old_model:
         src_img = scale_img(src_img, (218, 178))
         ref_img = scale_img(ref_img, (218, 178))
-        src_mask = scale_img(src_mask.unsqueeze(1), (218, 178)).squeeze(1)
 
     gen_images = generator(src_img, ref_img, src_mask=src_mask, no_prior=old_model)  # [N, 3, H, W]
 
@@ -201,7 +201,7 @@ def main():
 
         for i, img in enumerate(gen_images):
             img.save(f'test_results/{run_name}/gen_{ids[i]}.jpg')
-            if src_mask:
+            if src_mask and args.save_src_mask:
                 src_mask[i].save(f'test_results/{run_name}/mask_{ids[i]}.jpg')
 
     # eval
