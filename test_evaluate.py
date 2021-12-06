@@ -3,23 +3,28 @@
 import argparse
 import os
 
+import numpy as np
 import pandas as pd
 import torch
 from pytorch_msssim import MS_SSIM, SSIM
 from tqdm import tqdm
 
 from dataloader import BasicDataset
-from modules.evaluations.fid import PartialInceptionNetwork, calculate_fid
+from modules.evaluations.fid import PartialInceptionNetwork, calculate_frechet_distance, get_activations
 from modules.model import scale_img
 
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--eval_options', nargs="+", default={'ssim', 'ms_ssim', 'fid'})
+    parser.add_argument('--eval_options',
+                        nargs="+",
+                        default=['ssim', 'ms_ssim', 'fid'])
     parser.add_argument('--batch_size', type=int, default=8)
 
     # path args
-    parser.add_argument('--data_root', type=str, default='/data/mohaa/project1/CelebAHQ')
+    parser.add_argument('--data_root',
+                        type=str,
+                        default='/data/mohaa/project1/CelebAHQ')
     parser.add_argument('--gt_img_path', type=str, default='images')
     parser.add_argument('--test_folder', type=str, default='')
 
@@ -58,8 +63,7 @@ def main():
     #Load test files id
     test_ids = [
         os.path.basename(x).split('.')[0].split('_')[1]
-        for x in os.listdir(args.test_folder)
-        if x.startswith('gen')
+        for x in os.listdir(args.test_folder) if x.startswith('gen')
     ]
 
     if args.specific_img:
@@ -74,11 +78,12 @@ def main():
         inception_network = inception_network.to(device)
         inception_network.eval()
 
-    print('Eval Metric Order: ', args.eval_options)
-
     eval_results = {k: 0 for k in args.eval_options}
 
     pbar = tqdm(make_batch(test_ids, args.batch_size), total=len(test_ids))
+
+    gt_activations = []
+    gen_activations = []
     for batch_ids in pbar:
         batch_imgs = [load_images(args, bid) for bid in batch_ids]
         gt_img = torch.stack([imgs[0] for imgs in batch_imgs]).to(device)
@@ -91,14 +96,28 @@ def main():
             ms_ssim = ms_ssim_func(gt_img, gen_img)
             eval_results['ms_ssim'] += float(ms_ssim) * len(batch_ids)
         if 'fid' in args.eval_options:
-            fid_distance = calculate_fid(scale_img(gt_img, (299, 299)),
-                                         scale_img(gen_img, (299, 299)), len(batch_ids),
-                                         inception_network)
-            eval_results['fid'] += float(fid_distance) * len(batch_ids)
+            gt_act = get_activations(scale_img(gt_img, (299, 299)),
+                                     len(batch_ids), inception_network)
+            gen_act = get_activations(scale_img(gen_img, (299, 299)),
+                                      len(batch_ids), inception_network)
+            gt_activations.append(gt_act)
+            gen_activations.append(gen_act)
 
         pbar.update(len(batch_ids))
 
-    df = pd.DataFrame({k: [v / len(test_ids)] for k, v in eval_results.items()})
+    eval_results = {k: [v / len(test_ids)] for k, v in eval_results.items()}
+
+    if 'fid' in args.eval_options:
+        gt_activations = np.concatenate(gt_activations, axis=0)
+        gen_activations = np.concatenate(gen_activations, axis=0)
+        mu1, sigma1 = np.mean(gt_activations, axis=0), np.cov(gt_activations,
+                                                              rowvar=False)
+        mu2, sigma2 = np.mean(gen_activations, axis=0), np.cov(gen_activations,
+                                                               rowvar=False)
+        fid_distance = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
+        eval_results['fid'] = [float(fid_distance)]
+
+    df = pd.DataFrame(eval_results)
     print(df)
     df.to_csv(os.path.join(args.test_folder, 'metrics.csv'), index=False)
 
