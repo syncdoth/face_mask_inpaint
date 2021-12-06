@@ -140,7 +140,7 @@ def main():
                                                         args.batch_size,
                                                         apply_transform=True,
                                                         val_amount=0.1,
-                                                        num_workers=os.cpu_count(),
+                                                        num_workers=4,
                                                         img_scale=args.img_scale,
                                                         use_ssim=True)
 

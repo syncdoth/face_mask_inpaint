@@ -43,19 +43,19 @@ class PartialInceptionNetwork(nn.Module):
         """
         assert x.shape[1:] == (3, 299, 299), "Expected input shape to be: (N,3,299,299)" +\
                                              ", but got {}".format(x.shape)
-        x = x * 2 -1 # Normalize to [-1, 1]
+        x = x * 2 - 1  # Normalize to [-1, 1]
 
         # Trigger output hook
         self.inception_network(x)
 
-        # Output: N x 2048 x 1 x 1 
+        # Output: N x 2048 x 1 x 1
         activations = self.mixed_7c_output
-        activations = torch.nn.functional.adaptive_avg_pool2d(activations, (1,1))
+        activations = torch.nn.functional.adaptive_avg_pool2d(activations, (1, 1))
         activations = activations.view(x.shape[0], 2048)
         return activations
 
 
-def get_activations(images, batch_size):
+def get_activations(images, batch_size, inception_network):
     """
     Calculates activations for last pool layer for all iamges
     --
@@ -68,10 +68,7 @@ def get_activations(images, batch_size):
                                               ", but got {}".format(images.shape)
 
     num_images = images.shape[0]
-    inception_network = PartialInceptionNetwork()
-    inception_network = to_cuda(inception_network)
-    inception_network.eval()
-    n_batches = int(np.ceil(num_images  / batch_size))
+    n_batches = int(np.ceil(num_images / batch_size))
     inception_activations = np.zeros((num_images, 2048), dtype=np.float32)
     for batch_idx in range(n_batches):
         start_idx = batch_size * batch_idx
@@ -81,24 +78,25 @@ def get_activations(images, batch_size):
         ims = to_cuda(ims)
         activations = inception_network(ims)
         activations = activations.detach().cpu().numpy()
-        assert activations.shape == (ims.shape[0], 2048), "Expexted output shape to be: {}, but was: {}".format((ims.shape[0], 2048), activations.shape)
+        assert activations.shape == (
+            ims.shape[0], 2048), "Expexted output shape to be: {}, but was: {}".format(
+                (ims.shape[0], 2048), activations.shape)
         inception_activations[start_idx:end_idx, :] = activations
     return inception_activations
 
 
-
-def calculate_activation_statistics(images, batch_size):
+def calculate_activation_statistics(images, batch_size, inception_network):
     """Calculates the statistics used by FID
     Args:
         images: torch.tensor, shape: (N, 3, H, W), dtype: torch.float32 in range 0 - 1
         batch_size: batch size to use to calculate inception scores
     Returns:
         mu:     mean over all activations from the last pool layer of the inception model
-        sigma:  covariance matrix over all activations from the last pool layer 
+        sigma:  covariance matrix over all activations from the last pool layer
                 of the inception model.
 
     """
-    act = get_activations(images, batch_size)
+    act = get_activations(images, batch_size, inception_network)
     mu = np.mean(act, axis=0)
     sigma = np.cov(act, rowvar=False)
     return mu, sigma
@@ -110,7 +108,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     The Frechet distance between two multivariate Gaussians X_1 ~ N(mu_1, C_1)
     and X_2 ~ N(mu_2, C_2) is
             d^2 = ||mu_1 - mu_2||^2 + Tr(C_1 + C_2 - 2*sqrt(C_1*C_2)).
-            
+
     Stable version by Dougal J. Sutherland.
 
     Params:
@@ -158,7 +156,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     return diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * tr_covmean
 
 
-def calculate_fid(images1, images2, use_multiprocessing, batch_size):
+def calculate_fid(images1, images2, batch_size, inception_network):
     """ Calculate FID between images1 and images2
     Args:
         images1: tensor, shape: (N, 3, H, W), dtype: np.float32 between 0-1 or np.uint8
@@ -167,7 +165,7 @@ def calculate_fid(images1, images2, use_multiprocessing, batch_size):
     Returns:
         FID (scalar)
     """
-    mu1, sigma1 = calculate_activation_statistics(images1, batch_size)
-    mu2, sigma2 = calculate_activation_statistics(images2, batch_size)
+    mu1, sigma1 = calculate_activation_statistics(images1, batch_size, inception_network)
+    mu2, sigma2 = calculate_activation_statistics(images2, batch_size, inception_network)
     fid = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
     return fid

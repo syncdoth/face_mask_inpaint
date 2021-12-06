@@ -1,35 +1,32 @@
-#Evaluation of test generated images compared to ground truth image
-#Input
+"""Evaluation of test generated images compared to ground truth image Input"""
 
 import argparse
-import logging
 import os
-from pathlib import Path
 
-import torch
-from tqdm import tqdm
-import pickle
-
-from modules.model import scale_img
-from modules.evaluations.fid import calculate_fid
-from pytorch_msssim import SSIM, MS_SSIM
-
-from os.path import splitext
 import numpy as np
-from PIL import Image
+import pandas as pd
+import torch
+from pytorch_msssim import MS_SSIM, SSIM
+from tqdm import tqdm
+
+from dataloader import BasicDataset
+from modules.evaluations.fid import PartialInceptionNetwork, calculate_frechet_distance, get_activations
+from modules.model import scale_img
 
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--eval_options', nargs="+", default={'ssim','msssim','fid'})
-    parser.add_argument('--img_scale', type=float, default=1.)
+    parser.add_argument('--eval_options',
+                        nargs="+",
+                        default=['ssim', 'ms_ssim', 'fid'])
+    parser.add_argument('--batch_size', type=int, default=8)
 
     # path args
-    parser.add_argument('--run_name', type=str, default='', help='exp name')
-    parser.add_argument('--data_root', type=str, default='/data/mohaa/project1/CelebAHQ')
+    parser.add_argument('--data_root',
+                        type=str,
+                        default='/data/mohaa/project1/CelebAHQ')
     parser.add_argument('--gt_img_path', type=str, default='images')
-    parser.add_argument('--test_root', type=str, default='/data/mohaa/project1/facial_mask_identity/test_result')
-    parser.add_argument('--folders', nargs="+", default={})
+    parser.add_argument('--test_folder', type=str, default='')
 
     # additional args
     parser.add_argument('--specific_img', nargs="+", default={})
@@ -41,83 +38,89 @@ def get_args():
 
     return args
 
-def preprocess(pil_img, scale, is_mask=False):
-    w, h = pil_img.size
-    newW, newH = int(scale * w), int(scale * h)
-    assert newW > 0 and newH > 0, 'Scale is too small, resized images would have no pixel'
-    pil_img = pil_img.resize((newW, newH),
-                                resample=Image.NEAREST if is_mask else Image.BICUBIC)
-    img_ndarray = np.asarray(pil_img)
 
-    if img_ndarray.ndim == 2 and not is_mask:
-        img_ndarray = img_ndarray[np.newaxis, ...]
-    if not is_mask:
-        img_ndarray = img_ndarray.transpose((2, 0, 1))
-        img_ndarray = img_ndarray / 255
-        img_ndarray = torch.as_tensor(img_ndarray.copy()).float().contiguous()
-    else:
-        img_ndarray = torch.as_tensor(img_ndarray.copy()).long().contiguous()
+def load_images(args, test_id):
+    gt_img_file = os.path.join(args.gt_img_path, f'{test_id}.jpg')
+    gt_img = BasicDataset.load(gt_img_file)
+    gt_img = BasicDataset.preprocess(gt_img, 0.25, False)
 
-    return img_ndarray
+    gen_img_file = os.path.join(args.test_folder, f'gen_{test_id}.jpg')
+    gen_img = BasicDataset.load(gen_img_file)
+    gen_img = BasicDataset.preprocess(gen_img, 1, False)
+    return gt_img, gen_img
 
-def load(filename):
-    ext = splitext(filename)[1]
-    if ext in ['.npz', '.npy']:
-        return Image.fromarray(np.load(filename))
-    elif ext in ['.pt', '.pth']:
-        return Image.fromarray(torch.load(filename).numpy())
-    else:
-        return Image.open(filename)
+
+def make_batch(test_ids, batch_size):
+    for i in range(0, len(test_ids), batch_size):
+        yield test_ids[i:min(i + batch_size, len(test_ids))]
+
 
 def main():
     args = get_args()
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     #Load test files id
-    with open(Path(args.data_root)/Path('test_files_list.pkl'), 'rb') as f:
-        testIds = pickle.load(f)
+    test_ids = [
+        os.path.basename(x).split('.')[0].split('_')[1]
+        for x in os.listdir(args.test_folder) if x.startswith('gen')
+    ]
 
-    if args.specific_img is not {}:
-        testIds=list(args.specific_img)
-    
-    if 'ssim' in args.options:
+    if args.specific_img:
+        test_ids = list(args.specific_img)
+
+    if 'ssim' in args.eval_options:
         ssim_func = SSIM(data_range=1, size_average=True, channel=3)
-    if 'ms_ssim' in args.options:
+    if 'ms_ssim' in args.eval_options:
         ms_ssim_func = MS_SSIM(data_range=1, size_average=True, channel=3)
-    
-    result = []
-    print ('Eval Metric Order: ',args.options)
-    with tqdm(total=(len(testIds)*len(args.folders)), desc=f'Calculate evaluation', unit='img') as pbar:
-        for id in testIds:
-            gt_img_file = args.gt_img_path / Path(id + '.jpg')
-            gt_img = load(gt_img_file)
-            gt_img = preprocess(gt_img,0.25,False).to(device)
-            for folder in args.folders:
-                temp = []
-                temp.append(id)
-                temp.append(folder)
-                gen_img_file = args.test_root / Path(folder) / Path(id + '_gen' + '.jpg')
-                gen_img = load(gen_img_file)
-                gen_img = preprocess(gen_img,1,False).to(device)
-                for option in args.options:
-                    if (option=='ssim'):
-                        ssim = ssim_func(gt_img, gen_img)
-                        temp.append(ssim)
-                    if (option=='ms_ssim'):
-                        ms_ssim = ms_ssim_func(gt_img,gen_img)
-                        temp.append(ms_ssim)
-                    if (option=='fid'):
-                        fid_distance = calculate_fid(scale_img(gt_img, (299, 299)),
-                                            scale_img(gen_img, (299, 299)), False,
-                                            1)
-                        temp.append(fid_distance)
-                result.append(temp)
-                pbar.update(1)
-    with open(Path(args.test_root)/Path('test_evaluation.pkl'), 'wb') as f:
-        pickle.dump(result, f)
-    print ('test evaluation done!')
+    if 'fid' in args.eval_options:
+        inception_network = PartialInceptionNetwork()
+        inception_network = inception_network.to(device)
+        inception_network.eval()
+
+    eval_results = {k: 0 for k in args.eval_options}
+
+    pbar = tqdm(make_batch(test_ids, args.batch_size), total=len(test_ids))
+
+    gt_activations = []
+    gen_activations = []
+    for batch_ids in pbar:
+        batch_imgs = [load_images(args, bid) for bid in batch_ids]
+        gt_img = torch.stack([imgs[0] for imgs in batch_imgs]).to(device)
+        gen_img = torch.stack([imgs[1] for imgs in batch_imgs]).to(device)
+
+        if 'ssim' in args.eval_options:
+            ssim = ssim_func(gt_img, gen_img)
+            eval_results['ssim'] += float(ssim) * len(batch_ids)
+        if 'ms_ssim' in args.eval_options:
+            ms_ssim = ms_ssim_func(gt_img, gen_img)
+            eval_results['ms_ssim'] += float(ms_ssim) * len(batch_ids)
+        if 'fid' in args.eval_options:
+            gt_act = get_activations(scale_img(gt_img, (299, 299)),
+                                     len(batch_ids), inception_network)
+            gen_act = get_activations(scale_img(gen_img, (299, 299)),
+                                      len(batch_ids), inception_network)
+            gt_activations.append(gt_act)
+            gen_activations.append(gen_act)
+
+        pbar.update(len(batch_ids))
+
+    eval_results = {k: [v / len(test_ids)] for k, v in eval_results.items()}
+
+    if 'fid' in args.eval_options:
+        gt_activations = np.concatenate(gt_activations, axis=0)
+        gen_activations = np.concatenate(gen_activations, axis=0)
+        mu1, sigma1 = np.mean(gt_activations, axis=0), np.cov(gt_activations,
+                                                              rowvar=False)
+        mu2, sigma2 = np.mean(gen_activations, axis=0), np.cov(gen_activations,
+                                                               rowvar=False)
+        fid_distance = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
+        eval_results['fid'] = [float(fid_distance)]
+
+    df = pd.DataFrame(eval_results)
+    print(df)
+    df.to_csv(os.path.join(args.test_folder, 'metrics.csv'), index=False)
+
 
 if __name__ == '__main__':
     main()

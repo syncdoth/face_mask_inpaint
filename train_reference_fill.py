@@ -100,7 +100,7 @@ def process_params(args):
     disc_params = {
         k.replace('disc_', ''): v for k, v in args._get_kwargs() if k.startswith('disc')
     }
-    disc_params['img_f'] = decoder_params['img_f']
+    disc_params['img_f'] = encoder_params['img_f']
     return encoder_params, decoder_params, disc_params
 
 
@@ -171,7 +171,7 @@ def main():
                                                         args.batch_size,
                                                         apply_transform=False,
                                                         val_amount=0.1,
-                                                        num_workers=os.cpu_count(),
+                                                        num_workers=4,
                                                         img_scale=args.img_scale,
                                                         use_ssim=args.use_best_reference)
 
@@ -232,7 +232,6 @@ def evaluate(generator,
         metrics['D validation loss'] += loss_D.item()
         metrics['G validation loss'] += loss_G.item()
 
-        gen_images = (gen_images + 1) / 2
         # calculate metrics
         if 'fid' in options:
             fid_distance = calculate_fid(scale_img(gt_images, (299, 299)),

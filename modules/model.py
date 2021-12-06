@@ -46,21 +46,20 @@ class ReferenceFill(nn.Module):
         self.mask_detector = mask_detector
         self.encoder_type = encoder_params.pop('type')
         if self.encoder_type == 'drn':
-            self.src_encoder = drn_c_42(pretrained=True, out_map=True)
+            self.src_encoder = drn_c_42(pretrained=False, out_map=True)
             self.src_encoder.fc = torch.nn.Conv2d(self.src_encoder.out_dim,
                                                   encoder_params['img_f'],
                                                   kernel_size=1,
                                                   stride=1,
                                                   padding=0,
                                                   bias=True)
-            self.ref_encoder = drn_c_42(pretrained=True, out_map=True)
+            self.ref_encoder = drn_c_42(pretrained=False, out_map=True)
             self.ref_encoder.fc = torch.nn.Conv2d(self.ref_encoder.out_dim,
                                                   encoder_params['img_f'],
                                                   kernel_size=1,
                                                   stride=1,
                                                   padding=0,
                                                   bias=True)
-            decoder_params['layers'] = 6
         elif self.encoder_type == 'pluralistic':
             # NOTE: 4 differences.
             # 1. no short+long attention in decoder
@@ -75,12 +74,11 @@ class ReferenceFill(nn.Module):
 
         self.use_att = use_att
         if use_att:
-            self.attention = ExampleGuidedAttention(encoder_params['img_f'],
-                                                    out_channels=decoder_params['img_f'])
+            self.attention = ExampleGuidedAttention(encoder_params['img_f'])
 
         self.pool = nn.AdaptiveAvgPool2d(out_size)
 
-    def forward(self, src_image, ref_image, src_mask=None, resize=True):
+    def forward(self, src_image, ref_image, src_mask=None, resize=True, no_prior=False):
         """
         both have shape [N, 3, 218, 178]  (CelebA dataset images)
         """
@@ -97,14 +95,18 @@ class ReferenceFill(nn.Module):
             scaled_mask = scale_img(src_mask.unsqueeze(1), src_features.shape[-2:])
             enc_features = self.attention(scaled_mask, src_features, ref_features)
         else:
-            enc_features = torch.cat([src_features, ref_features], dim=1)
+            scaled_mask = scale_img(src_mask.unsqueeze(1), src_features.shape[-2:])
+            enc_features = (1 - scaled_mask) * src_features + scaled_mask * ref_features
 
-        if self.encoder_type == 'drn':
+        if self.encoder_type == 'drn' or no_prior:
             dec_image = self.decoder(enc_features)
         elif self.encoder_type == 'pluralistic':
-            z = self.decoder.get_z(src_dist, ref_dist)
+            z = self.decoder.get_z(src_dist, ref_dist, return_zq=not self.use_att)
             dec_image = self.decoder(enc_features, z=z)
 
         if resize:
-            dec_image = self.pool(dec_image)
+            if no_prior:
+                dec_image = scale_img(dec_image, (218, 178))
+            else:
+                dec_image = self.pool(dec_image)
         return dec_image
