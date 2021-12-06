@@ -1,6 +1,7 @@
 *__pycache__/
 *.ipynb_checkpoints/
 *checkpoints_mask_detector/
+*checkpoints256_mask_detector/
 *wandb/
 saved_model/
 pretrained_models/

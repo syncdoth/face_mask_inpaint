@@ -18,7 +18,7 @@ from modules.mask_detector import MaskDetector
 
 DIR_IMG = Path('../CelebAHQ/images_masked')
 DIR_MASK = Path('../CelebAHQ/binary_map')
-DIR_CHECKPOINT = Path('./checkpoints_mask_detector/')
+DIR_CHECKPOINT = Path('./checkpoints256_mask_detector/')
 
 
 def evaluate(net, dataloader, device):
@@ -192,6 +192,7 @@ def get_args():
     parser.add_argument('--validation', '-v', dest='val', type=float, default=10.0,
                         help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
+    parser.add_argument('--threshold', '-t', type=float, default=0.5, help='Threshold for deciding mask')
 
     return parser.parse_args()
 
@@ -207,7 +208,7 @@ if __name__ == '__main__':
     # Change here to adapt to your data
     # n_channels=3 for RGB images
     # n_classes is the number of probabilities you want to get per pixel
-    net = MaskDetector(n_channels=3, bilinear=True)
+    net = MaskDetector(n_channels=3, bilinear=True, threshold=args.threshold)
     # net = UNet(n_channels=3, n_classes=1, bilinear=True)
 
     logging.info(f'Network:\n'
