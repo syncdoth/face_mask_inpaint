@@ -10,7 +10,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataloader import ReferenceDataset
-# from modules.evaluations.fid import calculate_fid, PartialInceptionNetwork
 from modules.mask_detector import MaskDetector
 from modules.pluralistic_model import base_function
 # psp
@@ -116,8 +115,6 @@ def tensor2im(var):
 def evaluate(gt_img, gen_img, ssim_func, ms_ssim_func):
     ssim = ssim_func(gt_img, ((gen_img + 1) / 2))
     ms_ssim = ms_ssim_func(gt_img, ((gen_img + 1) / 2))
-    # fid_distance = calculate_fid(scale_img(gt_img, (299, 299)),
-    #                              scale_img(gen_img, (299, 299)), 2, inception_network)
 
     return float(ssim), float(ms_ssim)  #, fid_distance
 
@@ -127,13 +124,9 @@ def main():
 
     ssim_func = SSIM(data_range=1, size_average=True, channel=3)
     ms_ssim_func = MS_SSIM(data_range=1, size_average=True, channel=3)
-    # inception_network = PartialInceptionNetwork()
 
     # MODEL SETUP
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # inception_network = inception_network.to(device)
-    # inception_network.eval()
 
     # load saved mask detector
     mask_detector = MaskDetector(n_channels=3, bilinear=True)
@@ -202,7 +195,6 @@ def main():
     df = pd.DataFrame({
         'ssim': [eval_results[0]],
         'ms_ssim': [eval_results[1]],
-        # 'fid': eval_results[2]
     })
 
     print(df)

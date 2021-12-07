@@ -1,7 +1,6 @@
 bs=1
-run_name=PICNet_best_ref_HQ
+run_name=drn_best_ref_HQ_better_att
 
-# --encoder_type drn
 python train_reference_fill.py \
 --data_root /data/mohaa/project1/CelebAHQ \
 --src_img_path images_masked \
@@ -11,6 +10,8 @@ python train_reference_fill.py \
 --batch_size $bs \
 --img_scale 0.25 \
 --run_name $run_name \
+--encoder_type drn \
 --eval_options ssim ms_ssim \
 --use_best_reference 1 \
---pt_ckpt_path pretrained_models
+--pt_ckpt_path pretrained_models \
+--decoder_img_f 256

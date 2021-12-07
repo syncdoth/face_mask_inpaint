@@ -2,8 +2,13 @@ env_name="ref_mask"
 py_ver="3.8"
 cuda_ver="10.1"
 
-conda create -n $env_name python=$py_ver
-conda activate $env_name
+
+# NOTE: conda env creation cannot be done within shell script: please do this
+# before running this script!
+################### conda env create ##############################
+# conda create -n $env_name python=$py_ver
+# conda activate $env_name
+###################################################################
 
 ################### UGCPU specific Settings #######################
 # ugcpu4 and 5 have gcc versions 4.x, which is incompatible with the c++ source

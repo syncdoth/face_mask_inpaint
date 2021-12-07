@@ -1,4 +1,5 @@
-"""Evaluation of test generated images compared to ground truth image Input"""
+""" NOTE: this file is deprecated and not used.
+Evaluation of test generated images compared to ground truth image Input"""
 
 import argparse
 import os
@@ -16,15 +17,11 @@ from modules.model import scale_img
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--eval_options',
-                        nargs="+",
-                        default=['ssim', 'ms_ssim', 'fid'])
+    parser.add_argument('--eval_options', nargs="+", default=['ssim', 'ms_ssim', 'fid'])
     parser.add_argument('--batch_size', type=int, default=8)
 
     # path args
-    parser.add_argument('--data_root',
-                        type=str,
-                        default='/data/mohaa/project1/CelebAHQ')
+    parser.add_argument('--data_root', type=str, default='/data/mohaa/project1/CelebAHQ')
     parser.add_argument('--gt_img_path', type=str, default='images')
     parser.add_argument('--test_folder', type=str, default='')
 
@@ -63,7 +60,8 @@ def main():
     #Load test files id
     test_ids = [
         os.path.basename(x).split('.')[0].split('_')[1]
-        for x in os.listdir(args.test_folder) if x.startswith('gen')
+        for x in os.listdir(args.test_folder)
+        if x.startswith('gen')
     ]
 
     if args.specific_img:
@@ -96,10 +94,10 @@ def main():
             ms_ssim = ms_ssim_func(gt_img, gen_img)
             eval_results['ms_ssim'] += float(ms_ssim) * len(batch_ids)
         if 'fid' in args.eval_options:
-            gt_act = get_activations(scale_img(gt_img, (299, 299)),
-                                     len(batch_ids), inception_network)
-            gen_act = get_activations(scale_img(gen_img, (299, 299)),
-                                      len(batch_ids), inception_network)
+            gt_act = get_activations(scale_img(gt_img, (299, 299)), len(batch_ids),
+                                     inception_network)
+            gen_act = get_activations(scale_img(gen_img, (299, 299)), len(batch_ids),
+                                      inception_network)
             gt_activations.append(gt_act)
             gen_activations.append(gen_act)
 
