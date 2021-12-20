@@ -35,7 +35,7 @@ conda install -y pytorch torchvision cudatoolkit=$cuda_ver -c pytorch
 conda install -y wandb -c conda-forge
 
 # pip
-pip install opencv-python pytorch-msssim pytorch_fid
+pip install opencv-python pytorch-msssim pytorch_fid gradio
 
 # c++ related
 conda install -y ninja

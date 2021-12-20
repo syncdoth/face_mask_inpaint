@@ -77,6 +77,11 @@ calculate FID,
 python -m pytorch_fid test_results/[checkpoint_name] path/to/test/images
 ```
 
+## Serving through gradio
+
+run `python gradio_serve.py` with appropriate flags to serve using gradio.
+
+
 ## Acknowledgements
 
 This repo borrows heavily from other implementations. Namely:
